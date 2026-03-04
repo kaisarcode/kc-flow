@@ -1,7 +1,6 @@
 contract.id=kc.example.input_echo
 contract.name=Input Echo Example
-contract.version=1
-contract.description=Contract example with input override from CLI
+contract.description=Atomic flow example with input override from CLI
 
 input.1.id=user_text
 input.1.type=text

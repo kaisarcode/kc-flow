@@ -80,16 +80,13 @@ static int kc_flow_system_exit_code(int status) {
 }
 
 static void kc_flow_help(const char *bin) {
-    printf("Commands:\n");
-    printf("  schema            Print the current contract and flow direction\n");
-    printf("  inspect <file>    Inspect one contract or flow file path\n");
-    printf("  --run <file>      Resolve one contract or flow file path for execution\n");
+    printf("Options:\n");
+    printf("  --run <file>      Execute one flow file\n");
     printf("  --help            Show help\n");
     printf("\n");
-    printf("Options:\n");
-    printf("  %s schema\n", bin);
-    printf("  %s inspect /path/to/file.flow\n", bin);
-    printf("  %s --run /path/to/file.flow [--set key=value ...]\n", bin);
+    printf("Examples:\n");
+    printf("  %s --run /path/to/file.flow\n", bin);
+    printf("  %s --run /path/to/file.flow --set input.user_text=hello\n", bin);
 }
 
 static int kc_flow_fail(const char *bin, const char *message) {
@@ -1272,15 +1269,6 @@ static int kc_flow_print_contract_outputs(const kc_flow_model *model, const kc_f
     return 0;
 }
 
-static int kc_flow_schema(void) {
-    printf("contract: executable unit with params, inputs, outputs, execution reference, output bindings\n");
-    printf("flow: composed contract graph with nodes, links, and exposed interface\n");
-    printf("view: paired visual metadata stored in .gui.cfg files\n");
-    printf("engine: headless resolver and executor over contracts and flows\n");
-    printf("gui: compatible visual clients over the same model\n");
-    return 0;
-}
-
 static int kc_flow_parse_run_overrides(
     int argc,
     char **argv,
@@ -1329,54 +1317,6 @@ static int kc_flow_parse_run_overrides(
         }
     }
 
-    return 0;
-}
-
-static int kc_flow_inspect(const char *path) {
-    kc_flow_model model;
-    char error[256];
-
-    if (!kc_flow_file_exists(path)) {
-        fprintf(stderr, "Error: contract or flow file not found: %s\n", path);
-        return 1;
-    }
-
-    kc_flow_model_init(&model);
-
-    if (kc_flow_load_file(path, &model, error, sizeof(error)) != 0 ||
-        kc_flow_validate_model(&model, error, sizeof(error)) != 0) {
-        fprintf(stderr, "Error: %s\n", error);
-        kc_flow_model_free(&model);
-        return 1;
-    }
-
-    printf("inspect ok\n");
-    printf("path=%s\n", path);
-    printf("kind=%s\n", model.kind == KC_STDIO_FILE_CONTRACT ? "contract" : "flow");
-    printf("id=%s\n", model.id);
-    printf("name=%s\n", model.name);
-    printf("params=%zu\n", model.params.count);
-    printf("inputs=%zu\n", model.inputs.count);
-    printf("outputs=%zu\n", model.outputs.count);
-
-    if (model.kind == KC_STDIO_FILE_CONTRACT) {
-        printf("runtime.script=%s\n", model.runtime_script);
-        if (model.runtime_exec != NULL) {
-            printf("runtime.exec=%s\n", model.runtime_exec);
-        }
-        if (model.runtime_stdin != NULL) {
-            printf("runtime.stdin=%s\n", model.runtime_stdin);
-        }
-        printf("runtime.env=%zu\n", model.runtime_env.count);
-        printf("bind.output=%zu\n", model.bind_output.count);
-    } else {
-        printf("nodes=%zu\n", model.nodes.count);
-        printf("node.param=%zu\n", model.node_params.count);
-        printf("links=%zu\n", model.links.count);
-        printf("expose=%zu\n", model.expose.count);
-    }
-
-    kc_flow_model_free(&model);
     return 0;
 }
 
@@ -1440,20 +1380,6 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "--help") == 0) {
         kc_flow_help(argv[0]);
         return 0;
-    }
-
-    if (strcmp(argv[1], "schema") == 0) {
-        if (argc != 2) {
-            return kc_flow_fail(argv[0], "schema does not accept extra arguments.");
-        }
-        return kc_flow_schema();
-    }
-
-    if (strcmp(argv[1], "inspect") == 0) {
-        if (argc != 3) {
-            return kc_flow_fail(argv[0], "inspect requires exactly one file path.");
-        }
-        return kc_flow_inspect(argv[2]);
     }
 
     if (strcmp(argv[1], "--run") == 0) {

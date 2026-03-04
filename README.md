@@ -1,27 +1,27 @@
 # kc-flow
 
-`kc-flow` is the execution foundation for contract-defined KaisarCode
-tools and composed flows.
+`kc-flow` executes KaisarCode flow contracts with a deterministic headless runtime.
 
-It is intentionally centered on headless execution first.
+## Definitions
 
-The core model is the contract plus the composed flow interpreted by a
-headless engine.
+- **Flow**: runtime execution unit (atomic or composed).
+- **Contract**: text file that defines a flow (`key=value`).
 
-The GUI layer is a visual editor and representation over that same model.
+Contract structure:
 
-## Core Direction
-
-- contract-defined executable tools
-- flow composition through explicit input/output links
-- headless inspection and execution
-- reusable workflows that can be imported as tools
-- scripts and commands described by the contract execution reference
+- identity: `flow.id`, `flow.name`
+- interface: `input.*`, `output.*`, `param.*`
+- atomic runtime: `runtime.*`, `bind.output.*`
+- composed graph: `node.*`, `link.*`, `expose.*`
 
 ## Runtime Surface
 
-`kc-flow` currently provides a headless CLI surface for inspecting and
-running contract and flow files.
+`kc-flow` provides a CLI runtime for executing flow contracts.
+
+Invocation contexts:
+
+- root flow: launched with `kc-flow --run <file>`
+- nested flow: referenced by another flow as a node
 
 ## Usage
 
@@ -30,44 +30,22 @@ running contract and flow files.
 kc-flow --help
 ```
 
-### Print schema direction
-```bash
-kc-flow schema
-```
-
-### Inspect a contract or flow file
-```bash
-kc-flow inspect /path/to/file.flow
-```
-
-### Run a contract or flow file
+### Run a flow file
 ```bash
 kc-flow --run /path/to/file.flow
 ```
 
 ### Run with input/param overrides
 ```bash
-kc-flow --run /path/to/file.flow --set input.user_text=hola --set param.width=1024
+kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1024
 ```
 
 ## Command Surface
 
 | Command | Description |
 | :--- | :--- |
-| `schema` | Prints the current conceptual direction for the contract model |
-| `inspect <file>` | Verifies that a contract/flow file exists and reports its path |
-| `--run <file> [--set key=value ...]` | Resolves one contract/flow file path and executes contract files headlessly |
+| `--run <file> [--set key=value ...]` | Executes one flow file |
 | `--help` | Shows help |
-
-## Architecture Direction
-
-The intended system is split into clear layers:
-
-- `contract`: executable unit definition
-- `flow`: composition of contracts and links
-- `engine`: headless resolution and execution
-- `cli`: non-GUI interface to engine behaviour
-- `gui`: optional representation and editor over the same model
 
 ## Testing
 

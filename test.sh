@@ -45,7 +45,7 @@ test_kcs() {
 }
 
 test_general() {
-    if ! "$KC_BIN_EXEC" --help | grep -q "Commands:"; then
+    if ! "$KC_BIN_EXEC" --help | grep -q "Options:"; then
         fail "General: Help flag failed."
     fi
     pass "General: Help flag verified."
@@ -57,19 +57,7 @@ test_general() {
 }
 
 test_functional() {
-    OUTPUT=$("$KC_BIN_EXEC" schema)
-    printf '%s' "$OUTPUT" | grep -q "contract" || fail "Functional: schema output missing contract."
-    printf '%s' "$OUTPUT" | grep -q "flow" || fail "Functional: schema output missing flow."
-    pass "Functional: Schema direction verified."
-
     EXAMPLE_FILE="$APP_ROOT/etc/example.flow"
-
-    OUTPUT=$("$KC_BIN_EXEC" inspect "$EXAMPLE_FILE")
-    printf '%s' "$OUTPUT" | grep -q "inspect ok" || fail "Functional: inspect command failed."
-    printf '%s' "$OUTPUT" | grep -q "kind=contract" || fail "Functional: inspect kind detection failed."
-    printf '%s' "$OUTPUT" | grep -q "id=kc.example.echo" || fail "Functional: inspect id output failed."
-    printf '%s' "$OUTPUT" | grep -q "runtime.script=" || fail "Functional: inspect runtime output failed."
-    pass "Functional: Inspect command verified."
 
     OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE")
     printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run command failed."
@@ -84,12 +72,12 @@ test_functional() {
     fi
     pass "Functional: Missing input override fail-fast verified."
 
-    OUTPUT=$("$KC_BIN_EXEC" --run "$INPUT_FILE" --set input.user_text=hola)
+    OUTPUT=$("$KC_BIN_EXEC" --run "$INPUT_FILE" --set input.user_text=hello)
     printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run with --set failed."
-    printf '%s' "$OUTPUT" | grep -q "output.result=hola" || fail "Functional: --set input override output failed."
+    printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: --set input override output failed."
     pass "Functional: Run with --set input override verified."
 
-    if "$KC_BIN_EXEC" inspect "$EXAMPLE_FILE.missing" >/dev/null 2>&1; then
+    if "$KC_BIN_EXEC" --run "$EXAMPLE_FILE.missing" >/dev/null 2>&1; then
         fail "Functional: missing file should fail."
     fi
     pass "Functional: Missing file fail-fast verified."
@@ -98,7 +86,7 @@ test_functional() {
     trap 'rm -f "$TMP_FILE"' RETURN
     printf 'contract.id=broken\n' > "$TMP_FILE"
 
-    if "$KC_BIN_EXEC" inspect "$TMP_FILE" >/dev/null 2>&1; then
+    if "$KC_BIN_EXEC" --run "$TMP_FILE" >/dev/null 2>&1; then
         fail "Functional: invalid contract should fail."
     fi
     pass "Functional: Invalid contract validation verified."

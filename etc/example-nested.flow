@@ -1,0 +1,28 @@
+flow.id=kc.flow.nested_pipeline
+flow.name=Nested Flow Pipeline
+flow.description=Flow composed from reusable subflows
+
+input.1.id=prompt
+input.1.type=text
+input.1.required=1
+
+node.1.id=prepare
+node.1.contract=kc.flow.parallel_prompt
+
+node.2.id=publish
+node.2.contract=kc.example.publish
+
+link.1.from=input.prompt
+link.1.to=node.prepare.in.prompt
+
+link.2.from=node.prepare.out.title
+link.2.to=node.publish.in.title
+
+link.3.from=node.prepare.out.tags
+link.3.to=node.publish.in.tags
+
+link.4.from=node.prepare.out.image
+link.4.to=node.publish.in.image
+
+link.5.from=node.publish.out.url
+link.5.to=output.url

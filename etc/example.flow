@@ -1,7 +1,6 @@
 contract.id=kc.example.echo
 contract.name=Echo Example
-contract.version=1
-contract.description=Minimal contract example for kc-flow
+contract.description=Minimal atomic flow example for kc-flow
 
 param.1.id=prefix
 param.1.type=text

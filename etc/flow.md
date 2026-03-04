@@ -1,257 +1,151 @@
-# kc-flow flow
+# kc-flow Flow
 
-This document defines the first concrete flow file direction for `kc-flow`.
+This document describes flow semantics for `kc-flow`.
+
+The canonical key map is defined in `etc/contract-flow.md`.
+This file focuses on composition behavior.
 
 ## Purpose
 
-A flow file defines a composed executable unit.
+A flow is the only executable unit type.
 
-A flow is also a contract-level unit.
+A flow can be atomic or composed.
 
-It can be:
+A flow can be:
 
 - opened directly
 - executed directly
 - imported into another flow as a tool
 
-## File Direction
+## Format
 
-The initial flow format uses flat `key=value` records.
+Flow files use flat `key=value` records.
 
-Suggested extension:
+GUI state is external metadata (`contract.gui.cfg`) and is not part of the engine contract.
 
-- `.cfg`
-
-Associated visual metadata may be stored in a paired file:
-
-- `.gui.cfg`
-
-## Sections
-
-A flow file contains these sections:
-
-- identity
-- public interface
-- nodes
-- links
-- expose
-
-The flow file stores the operational graph of the composed unit.
-
-## Identity
-
-Required keys:
+## Required Identity
 
 - `flow.id`
 - `flow.name`
 
-Optional keys:
+## Repeated Sections
 
-- `flow.version`
-- `flow.description`
+The engine discovers indexed sections dynamically from keys present in the file:
 
-Example:
+- `param.N.*`
+- `input.N.*`
+- `output.N.*`
+- `node.N.*`
+- `node.param.N.*`
+- `link.N.*`
+- `expose.N.*`
 
-```cfg
-flow.id=kc.flow.prompt_to_image
-flow.name=Prompt To Image
-flow.version=1
-flow.description=Compose prompt rewriting and image generation
-```
+## Node Rules
 
-## Public Interface
-
-A flow may expose:
-
-- `params`
-- `inputs`
-- `outputs`
-
-These use the same field structure as the contract format.
-
-That includes value inputs, filesystem references, direct binary payloads,
-and streams.
-
-The connected contracts define the meaning and expected format of the data
-they exchange.
-
-Example:
-
-```cfg
-input.1.id=prompt
-input.1.type=text
-input.1.required=1
-input.1.label=Prompt
-input.1.description=Prompt text
-
-output.1.id=image
-output.1.type=file
-output.1.label=Image
-output.1.description=Generated image
-```
-
-## Nodes
-
-Nodes are instances of other contracts.
-
-Required node keys:
+Each `node.N` requires:
 
 - `node.N.id`
 - `node.N.contract`
 
-Optional node keys:
+Optional:
 
 - `node.N.title`
 
-Example:
+## Link Rules
 
-```cfg
-node.1.id=llm
-node.1.contract=kc.llm.rewrite
-node.1.title=Prompt Rewrite
-
-node.2.id=sdf
-node.2.contract=kc.sdf.generate
-node.2.title=Image Generate
-```
-
-## Node Param Overrides
-
-A node may override its own params inside the flow.
-
-Example:
-
-```cfg
-node.param.1.node=llm
-node.param.1.id=predict
-node.param.1.value=128
-
-node.param.2.node=sdf
-node.param.2.id=width
-node.param.2.value=1024
-```
-
-Required override keys:
-
-- `node.param.N.node`
-- `node.param.N.id`
-- `node.param.N.value`
-
-## Links
-
-Links connect one source field to one destination field.
-
-The source and destination use dot paths.
-
-Path forms:
-
-- `input.<id>`
-- `node.<node_id>.output.<id>`
-- `node.<node_id>.input.<id>`
-- `node.<node_id>.param.<id>`
-
-Example:
-
-```cfg
-link.1.from=input.prompt
-link.1.to=node.llm.input.prompt
-
-link.2.from=node.llm.output.prompt
-link.2.to=node.sdf.input.prompt
-```
-
-Required link keys:
+Each `link.N` requires:
 
 - `link.N.from`
 - `link.N.to`
 
-## Expose
+Links express explicit endpoint wiring between parent flow and node instances.
 
-Expose maps internal node fields to the public interface of the flow.
+### Endpoint Paths
 
-Example:
+Allowed source endpoints (`link.N.from`):
 
-```cfg
-expose.1.from=node.sdf.output.image
-expose.1.as=output.image
-```
+- `input.<id>`
+- `node.<node_id>.out.<id>`
 
-Required expose keys:
+Allowed destination endpoints (`link.N.to`):
+
+- `node.<node_id>.in.<id>`
+- `output.<id>`
+
+No network meaning is implied by endpoint naming. These are logical data-flow endpoints only.
+
+### Connection Semantics
+
+- A link connects exactly one source endpoint to one destination endpoint.
+- One source endpoint may connect to multiple destination endpoints (fan-out).
+- A destination endpoint may aggregate multiple sources only if the target node/tool explicitly supports that input pattern; otherwise it is treated as invalid.
+- Destination endpoints receive exactly one resolved value per execution step.
+- Missing required destination values fail the flow.
+- Unknown node ids or endpoint ids fail the flow.
+- Cycles fail the flow.
+
+### Parallelism
+
+- Independent nodes (no dependency edge between them) are runnable in parallel.
+- Fan-out naturally enables parallel branches from one source value.
+- Fan-in is allowed when a node has multiple required `in.*` endpoints and all of them are resolved.
+- A node starts only when its required inputs are fully resolved.
+
+## Execution Rules
+
+1. Build a dependency graph from `link.N.*`.
+2. Resolve parent `input.*` values first.
+3. Run a node when all required `node.<id>.in.*` values are resolved.
+4. Resolve parent `output.*` values from linked sources.
+5. Fail fast on missing required inputs, unknown endpoints, and cycles.
+
+## Nested Flows
+
+- A node contract may reference another flow unit.
+- This allows flow-in-flow composition recursively.
+- A parent flow can finish and be used as a reusable node inside a larger graph.
+
+## Expose Rules
+
+`expose.N` is optional compatibility metadata that maps internal node fields to public flow fields.
+
+Preferred output wiring is explicit `link.N.to=output.<id>`.
+
+Suggested keys:
 
 - `expose.N.from`
 - `expose.N.as`
 
-## Visual Metadata
-
-Visual state may be stored in a paired `*.gui.cfg` file associated with a
-flow and with its node instances.
-
-That standard metadata may include:
-
-- window position
-- window size
-- collapsed state
-- selection state
-- grouping
-- zoom
-- viewport
-
-Any compatible `kc-flow` GUI relates that metadata to contracts and flow
-nodes through their ids.
-
-## Dynamic Discovery
-
-The engine discovers repeated records dynamically by prefix and index.
-
-Examples:
-
-- `node.1.*`
-- `node.2.*`
-- `node.param.1.*`
-- `link.1.*`
-- `expose.1.*`
-
-Repeated sections are discovered directly from the indexed keys present in
-the file.
+This is what makes a flow reusable as a tool.
 
 ## Minimal Flow Example
 
 ```cfg
-flow.id=kc.flow.prompt_to_image
-flow.name=Prompt To Image
-flow.version=1
-flow.description=Compose prompt rewriting and image generation
+flow.id=kc.flow.sample
+flow.name=Sample Flow
 
 input.1.id=prompt
 input.1.type=text
-input.1.required=1
-input.1.label=Prompt
-input.1.description=Prompt text
 
-output.1.id=image
-output.1.type=file
-output.1.label=Image
-output.1.description=Generated image
+node.1.id=first
+node.1.contract=kc.example.rewrite
 
-node.1.id=llm
-node.1.contract=kc.llm.rewrite
-node.1.title=Prompt Rewrite
-node.2.id=sdf
-node.2.contract=kc.sdf.generate
-node.2.title=Image Generate
-
-node.param.1.node=llm
-node.param.1.id=predict
-node.param.1.value=128
-node.param.2.node=sdf
-node.param.2.id=width
-node.param.2.value=1024
+node.2.id=second
+node.2.contract=kc.example.generate
 
 link.1.from=input.prompt
-link.1.to=node.llm.input.prompt
-link.2.from=node.llm.output.prompt
-link.2.to=node.sdf.input.prompt
+link.1.to=node.first.in.prompt
 
-expose.1.from=node.sdf.output.image
-expose.1.as=output.image
+link.2.from=node.first.out.prompt
+link.2.to=node.second.in.prompt
+
+link.3.from=node.second.out.result
+link.3.to=output.result
 ```
+
+## Example Files
+
+- `etc/example.flow`: minimal atomic flow
+- `etc/example-input.flow`: atomic flow with required input override
+- `etc/example-parallel.flow`: fan-out to parallel downstream nodes
+- `etc/example-nested.flow`: flow composed from another flow unit

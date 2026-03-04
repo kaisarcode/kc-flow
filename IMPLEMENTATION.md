@@ -1,189 +1,109 @@
 # kc-flow Implementation
 
-## Purpose
+## Core Principle
 
-This document defines the implementation order for `kc-flow`.
+There is one unit type: `flow`.
 
-`kc-flow` is built from the contract and flow model upward.
+A flow can be:
 
-The engine is implemented first.
+- atomic (single runtime-backed step)
+- composed (graph of nested flows)
 
-## Layers
+The only special case is invocation context:
 
-The implementation is split into these layers:
+- root flow: launched with `kc-flow --run <file>`
+- nested flow: referenced by a parent flow node
+
+## Implementation Layers
 
 - file loading
-- contract parsing
 - flow parsing
-- execution planning
+- graph planning
 - headless execution
 - CLI surface
-- view metadata support
+- GUI metadata support
 
 ## Phase 1
 
-Phase 1 implements one atomic contract executed headlessly.
+Atomic flow execution.
 
-The implementation includes:
+Includes:
 
-- load one `.cfg` file
-- parse flat `key=value` records
-- detect whether the file is a contract or flow
-- collect repeated sections dynamically by indexed prefix
-- validate required contract fields
-- resolve placeholders in execution strings
-- execute one contract
-- report outputs declared by the contract
+- load one flow file (`key=value`)
+- collect indexed sections dynamically
+- validate required keys (`flow.id`, `flow.name`, `runtime.script` for atomic)
+- resolve placeholders and overrides
+- run one atomic flow headlessly
+- collect declared outputs
 
 ## Phase 2
 
-Phase 2 implements one composed flow.
+Composed flow execution.
 
-The implementation includes:
+Includes:
 
-- load one flow file
-- parse nodes, links, expose records, and node param overrides
-- resolve graph dependencies
-- detect execution order
-- resolve links from outputs to inputs and params
-- execute node instances in dependency order
-- expose flow outputs
+- parse nodes, links, node param overrides
+- build dependency graph from links
+- run independent branches in parallel
+- run node when required `in.*` endpoints are resolved
+- resolve parent `output.*` endpoints
+- fail fast on unknown endpoints, missing required values, and cycles
 
 ## Phase 3
 
-Phase 3 implements stable view metadata support.
+Reusable nested flows.
 
-The implementation includes:
+Includes:
 
-- load one paired `.gui.cfg` file
-- map visual metadata to contract ids and node ids
-- preserve visual metadata on save
-- keep view metadata separate from operational files
+- allow `node.N.contract` to reference another flow unit
+- execute nested flow with same runtime semantics
+- expose nested outputs via parent links
+- keep root and nested behavior identical except entrypoint
 
-## File Loading
+## Phase 4
 
-The loader reads line-oriented `key=value` records.
+Stable metadata and CLI completion.
 
-The loader handles:
+Includes:
 
-- blank lines
-- comments
-- key parsing
-- value parsing
-- repeated indexed sections
+- load/save paired `contract.gui.cfg` metadata
+- keep metadata separate from operational flow files
+- extend CLI introspection while preserving minimal runtime surface
 
-The loader produces a flat record table for the parser.
+## GUI Scope Boundary
 
-## Contract Parser
+GUI implementation is outside `kc-flow` and belongs to `kc-studio`.
 
-The contract parser reads:
+`kc-flow` only defines and executes flow contracts headlessly.
 
-- identity
-- params
-- inputs
-- outputs
-- runtime
-- output bindings
+## Runtime Resolution
 
-The contract parser validates:
+Runtime template supports:
 
-- `contract.id`
-- `contract.name`
-- `runtime.script`
-
-The parser also collects:
-
-- `runtime.exec`
-- `runtime.workdir`
-- `runtime.stdin`
-- `runtime.env.N.*`
-- `bind.output.N.*`
-
-## Flow Parser
-
-The flow parser reads:
-
-- identity
-- public interface
-- nodes
-- node param overrides
-- links
-- expose
-
-The flow parser validates:
-
-- `flow.id`
-- `flow.name`
-- `node.N.id`
-- `node.N.contract`
-- `link.N.from`
-- `link.N.to`
-
-## Placeholder Resolution
-
-Execution strings support contract placeholder replacement.
-
-The initial placeholder syntax is angle-bracket substitution.
-
-The initial placeholder surface is:
-
-- `<input.<id>>`
 - `<param.<id>>`
+- `<input.<id>>`
 - `<output.<id>>`
-- `<node.<node_id>.input.<id>>`
-- `<node.<node_id>.output.<id>>`
-- `<node.<node_id>.param.<id>>`
 
-## Execution
+CLI overrides:
 
-Execution starts from the contract execution reference.
+- `--set param.<id>=<value>`
+- `--set input.<id>=<value>`
 
-The initial execution path supports:
+## Endpoint Grammar
 
-- direct execution of a script or command from `runtime.script`
-- optional executable wrapper from `runtime.exec`
-- optional working directory from `runtime.workdir`
-- optional stdin source from `runtime.stdin`
-- optional environment entries from `runtime.env.N.*`
+Allowed source endpoints:
 
-The operating system resolves the concrete executable form of the referenced
-script or command.
+- `input.<id>`
+- `node.<node_id>.out.<id>`
 
-## Outputs
+Allowed destination endpoints:
 
-The engine collects outputs through declared bindings.
+- `node.<node_id>.in.<id>`
+- `output.<id>`
 
-Initial output collection supports:
+## Execution Guarantees
 
-- `stdout`
-- `stderr`
-- `file`
-- `exit_code`
-
-## CLI
-
-The CLI surface stays small.
-
-Initial commands:
-
-- `schema`
-- `inspect <file>`
-- `run <file>`
-
-## Directory Direction
-
-The implementation follows this layout:
-
-- `src/`
-- `etc/`
-- `bin/<arch>/`
-
-Operational definitions live in `etc/`.
-
-## Immediate Next Steps
-
-1. Finalize placeholder syntax for execution strings.
-2. Implement the flat `key=value` loader.
-3. Implement contract parsing and validation.
-4. Make `inspect` print parsed contract structure.
-5. Make `run` execute one atomic contract.
+- deterministic fail-fast on invalid graph state
+- explicit data-flow links only
+- no payload schema enforcement in engine
+- scripts/tools define data semantics
