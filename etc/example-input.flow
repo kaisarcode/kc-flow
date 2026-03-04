@@ -1,0 +1,19 @@
+contract.id=kc.example.input_echo
+contract.name=Input Echo Example
+contract.version=1
+contract.description=Contract example with input override from CLI
+
+input.1.id=user_text
+input.1.type=text
+input.1.required=1
+input.1.label=Input
+
+output.1.id=result
+output.1.type=text
+output.1.label=Result
+
+runtime.script=./echo.sh "<input.user_text>"
+runtime.workdir=.
+
+bind.output.1.id=result
+bind.output.1.mode=stdout

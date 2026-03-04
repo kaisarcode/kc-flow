@@ -1,5 +1,5 @@
 #!/bin/bash
-# test.sh - Automated test suite for kc-stdio
+# test.sh - Automated test suite for kc-flow
 # Summary: Tiered testing for KCS, Ecosystem compliance, and Functional logic.
 #
 # Author:  KaisarCode
@@ -28,7 +28,7 @@ test_setup() {
         arm64-v8a) EXT="" ;;
         *) EXT="" ;;
     esac
-    export KC_BIN_EXEC="$APP_ROOT/bin/$ARCH/kc-stdio$EXT"
+    export KC_BIN_EXEC="$APP_ROOT/bin/$ARCH/kc-flow$EXT"
 
     if [ ! -f "$KC_BIN_EXEC" ]; then
         fail "Binary not found at $KC_BIN_EXEC."
@@ -50,11 +50,6 @@ test_general() {
     fi
     pass "General: Help flag verified."
 
-    if ! "$KC_BIN_EXEC" --version | grep -q "^kc-stdio "; then
-        fail "General: Version flag failed."
-    fi
-    pass "General: Version flag verified."
-
     if "$KC_BIN_EXEC" --unknown >/dev/null 2>&1; then
         fail "General: Unknown flag should fail."
     fi
@@ -67,22 +62,46 @@ test_functional() {
     printf '%s' "$OUTPUT" | grep -q "flow" || fail "Functional: schema output missing flow."
     pass "Functional: Schema direction verified."
 
-    TMP_FILE=$(mktemp)
-    trap 'rm -f "$TMP_FILE"' RETURN
-    printf 'id=test\n' > "$TMP_FILE"
+    EXAMPLE_FILE="$APP_ROOT/etc/example.flow"
 
-    OUTPUT=$("$KC_BIN_EXEC" inspect "$TMP_FILE")
+    OUTPUT=$("$KC_BIN_EXEC" inspect "$EXAMPLE_FILE")
     printf '%s' "$OUTPUT" | grep -q "inspect ok" || fail "Functional: inspect command failed."
+    printf '%s' "$OUTPUT" | grep -q "kind=contract" || fail "Functional: inspect kind detection failed."
+    printf '%s' "$OUTPUT" | grep -q "id=kc.example.echo" || fail "Functional: inspect id output failed."
+    printf '%s' "$OUTPUT" | grep -q "runtime.script=" || fail "Functional: inspect runtime output failed."
     pass "Functional: Inspect command verified."
 
-    OUTPUT=$("$KC_BIN_EXEC" run "$TMP_FILE")
-    printf '%s' "$OUTPUT" | grep -q "run queued" || fail "Functional: run command failed."
+    OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE")
+    printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run command failed."
+    printf '%s' "$OUTPUT" | grep -q "kind=contract" || fail "Functional: run kind detection failed."
+    printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: run output binding failed."
     pass "Functional: Run command verified."
 
-    if "$KC_BIN_EXEC" inspect "$TMP_FILE.missing" >/dev/null 2>&1; then
+    INPUT_FILE="$APP_ROOT/etc/example-input.flow"
+
+    if "$KC_BIN_EXEC" --run "$INPUT_FILE" >/dev/null 2>&1; then
+        fail "Functional: run without required input override should fail."
+    fi
+    pass "Functional: Missing input override fail-fast verified."
+
+    OUTPUT=$("$KC_BIN_EXEC" --run "$INPUT_FILE" --set input.user_text=hola)
+    printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run with --set failed."
+    printf '%s' "$OUTPUT" | grep -q "output.result=hola" || fail "Functional: --set input override output failed."
+    pass "Functional: Run with --set input override verified."
+
+    if "$KC_BIN_EXEC" inspect "$EXAMPLE_FILE.missing" >/dev/null 2>&1; then
         fail "Functional: missing file should fail."
     fi
     pass "Functional: Missing file fail-fast verified."
+
+    TMP_FILE=$(mktemp)
+    trap 'rm -f "$TMP_FILE"' RETURN
+    printf 'contract.id=broken\n' > "$TMP_FILE"
+
+    if "$KC_BIN_EXEC" inspect "$TMP_FILE" >/dev/null 2>&1; then
+        fail "Functional: invalid contract should fail."
+    fi
+    pass "Functional: Invalid contract validation verified."
 
     rm -f "$TMP_FILE"
     trap - RETURN

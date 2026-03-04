@@ -1,0 +1,20 @@
+contract.id=kc.example.echo
+contract.name=Echo Example
+contract.version=1
+contract.description=Minimal contract example for kc-flow
+
+param.1.id=prefix
+param.1.type=text
+param.1.required=0
+param.1.default=hello
+param.1.label=Prefix
+
+output.1.id=result
+output.1.type=text
+output.1.label=Result
+
+runtime.script=./echo.sh "<param.prefix>"
+runtime.workdir=.
+
+bind.output.1.id=result
+bind.output.1.mode=stdout

@@ -1,6 +1,6 @@
 #!/bin/bash
-# install.sh - Production installer for kc-stdio on Linux.
-# Summary: Downloads and installs the kc-stdio binary for the host platform using wget.
+# install.sh - Production installer for kc-flow on Linux.
+# Summary: Downloads and installs the kc-flow binary for the host platform using wget.
 #
 # Author:  KaisarCode
 # Website: https://kaisarcode.com
@@ -8,8 +8,8 @@
 
 set -e
 
-APP_ID="kc-stdio"
-REPO_URL="https://raw.githubusercontent.com/kaisarcode/kc-stdio/master"
+APP_ID="kc-flow"
+REPO_URL="https://raw.githubusercontent.com/kaisarcode/kc-flow/master"
 INSTALL_ROOT="/usr/local/bin"
 
 fail() {

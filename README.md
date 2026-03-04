@@ -1,6 +1,6 @@
-# kc-stdio - Headless Contract Engine Scaffold
+# kc-flow
 
-`kc-stdio` is the execution foundation for contract-defined KaisarCode
+`kc-flow` is the execution foundation for contract-defined KaisarCode
 tools and composed flows.
 
 It is intentionally centered on headless execution first.
@@ -16,42 +16,38 @@ The GUI layer is a visual editor and representation over that same model.
 - flow composition through explicit input/output links
 - headless inspection and execution
 - reusable workflows that can be imported as tools
-- platform-specific script runners described by the contract runtime
+- scripts and commands described by the contract execution reference
 
-## Current Scope
+## Runtime Surface
 
-This initial app is a scaffold that establishes the autonomous app layout and
-the first headless CLI surface for `kc-stdio`.
-
-The current binary provides the initial command surface for inspecting and
-running contract and flow files while the deeper runtime model is being
-defined.
+`kc-flow` currently provides a headless CLI surface for inspecting and
+running contract and flow files.
 
 ## Usage
 
 ### Help
 ```bash
-kc-stdio --help
-```
-
-### Version
-```bash
-kc-stdio --version
+kc-flow --help
 ```
 
 ### Print schema direction
 ```bash
-kc-stdio schema
+kc-flow schema
 ```
 
 ### Inspect a contract or flow file
 ```bash
-kc-stdio inspect path/to/file.kcs
+kc-flow inspect /path/to/file.flow
 ```
 
 ### Run a contract or flow file
 ```bash
-kc-stdio run path/to/file.kcs
+kc-flow --run /path/to/file.flow
+```
+
+### Run with input/param overrides
+```bash
+kc-flow --run /path/to/file.flow --set input.user_text=hola --set param.width=1024
 ```
 
 ## Command Surface
@@ -60,9 +56,8 @@ kc-stdio run path/to/file.kcs
 | :--- | :--- |
 | `schema` | Prints the current conceptual direction for the contract model |
 | `inspect <file>` | Verifies that a contract/flow file exists and reports its path |
-| `run <file>` | Verifies that a contract/flow file exists and reports intended execution |
-| `-h`, `--help` | Shows help |
-| `-v`, `--version` | Shows version |
+| `--run <file> [--set key=value ...]` | Resolves one contract/flow file path and executes contract files headlessly |
+| `--help` | Shows help |
 
 ## Architecture Direction
 
@@ -73,19 +68,6 @@ The intended system is split into clear layers:
 - `engine`: headless resolution and execution
 - `cli`: non-GUI interface to engine behaviour
 - `gui`: optional representation and editor over the same model
-
-## Spec
-
-The first written model draft lives in:
-
-- `spec/v0.md`
-
-This spec defines the initial direction for:
-
-- contract identity and public interface
-- runtime and binding rules
-- composed flow structure
-- headless engine responsibilities
 
 ## Testing
 
@@ -98,7 +80,7 @@ Run the automated test suite:
 
 Install the current-architecture production binary on Linux:
 ```bash
-wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-stdio/master/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-flow/master/install.sh | bash
 ```
 
 ## Compilation
@@ -122,7 +104,7 @@ make all
 
 ## Structure
 
-`kc-stdio` follows the autonomous app layout:
+`kc-flow` follows the autonomous app layout:
 
 - binaries are built into `bin/<arch>/`
 - toolchains come from `/usr/local/share/kaisarcode/toolchains`

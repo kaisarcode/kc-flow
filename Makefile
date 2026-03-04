@@ -1,11 +1,11 @@
-# kc-stdio - Multi-architecture Makefile
+# kc-flow - Multi-architecture Makefile
 # Summary: Build system with per-app artifacts and global toolchains.
 #
 # Author:  KaisarCode
 # Website: https://kaisarcode.com
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
-NAME       = kc-stdio
+NAME       = kc-flow
 SRC        = src/main.c
 BIN_ROOT   = bin
 TOOLCHAIN_ROOT = /usr/local/share/kaisarcode/toolchains
