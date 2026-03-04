@@ -2,9 +2,6 @@
 
 This document describes flow semantics for `kc-flow`.
 
-The canonical key map is defined in `etc/contract-flow.md`.
-This file focuses on composition behavior.
-
 ## Purpose
 
 A flow is the only executable unit type.
@@ -22,6 +19,11 @@ A flow can be:
 Flow files use flat `key=value` records.
 
 GUI state is external metadata (`contract.gui.cfg`) and is not part of the engine contract.
+
+## Definitions
+
+- **Flow**: runtime execution unit (atomic or composed).
+- **Contract**: text file that defines a flow (`key=value`).
 
 ## Required Identity
 
