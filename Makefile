@@ -6,7 +6,9 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 NAME       = kc-flow
-SRC        = src/main.c
+SRC        = src/main.c src/model.c src/runtime.c src/graph.c src/render.c
+SRC_BASE   = $(notdir $(SRC))
+OBJ_NAMES  = $(SRC_BASE:.c=.o)
 BIN_ROOT   = bin
 TOOLCHAIN_ROOT = /usr/local/share/kaisarcode/toolchains
 
@@ -49,8 +51,8 @@ build_arch:
 	@mkdir -p $(BIN_ROOT)/$(ARCH)
 	$(eval SYS_LIB = /usr/local/lib/kaisarcode/$(ARCH))
 	$(eval RPATH   = -Wl,-rpath,$(SYS_LIB))
-	$(CC) $(CFLAGS) -c $(SRC) -o $(BIN_ROOT)/$(ARCH)/main.o
-	$(CC) $(CFLAGS) $(BIN_ROOT)/$(ARCH)/main.o -o \
+	$(foreach src,$(SRC),$(CC) $(CFLAGS) -c $(src) -o $(BIN_ROOT)/$(ARCH)/$(notdir $(src:.c=.o));)
+	$(CC) $(CFLAGS) $(addprefix $(BIN_ROOT)/$(ARCH)/,$(OBJ_NAMES)) -o \
 	$(BIN_ROOT)/$(ARCH)/$(NAME)$(EXT) \
 	$(if $(findstring win64,$(ARCH)),$(WINSOCK),$(RPATH))
 
