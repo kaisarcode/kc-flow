@@ -11,6 +11,7 @@
 
 #include "chain.h"
 #include "model.h"
+#include "win.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,10 +131,10 @@ static int kc_flow_build_template_to_bash(const char *input,
     return 0;
 }
 
-static int kc_flow_build_contract_cli(const kc_flow_model *model,
-                                      const char *path,
-                                      char *error,
-                                      size_t error_size) {
+static int kc_flow_build_contract_bash(const kc_flow_model *model,
+                                       const char *path,
+                                       char *error,
+                                       size_t error_size) {
     size_t i;
     char *script = NULL;
     char cwd[1024];
@@ -204,10 +205,12 @@ static int kc_flow_build_contract_cli(const kc_flow_model *model,
  */
 int kc_flow_build_cli(
     const char *path,
+    const char *shell,
     char *error,
     size_t error_size
 ) {
     kc_flow_model model;
+    const char *target = shell;
 
     kc_flow_model_init(&model);
     if (!kc_flow_file_exists(path)) {
@@ -221,14 +224,33 @@ int kc_flow_build_cli(
         return -1;
     }
 
+    if (target == NULL || target[0] == '\0') {
+        target = "bash";
+    }
+    if (strcmp(target, "bash") != 0 && strcmp(target, "powershell") != 0) {
+        kc_flow_model_free(&model);
+        snprintf(error, error_size, "Unsupported cli shell: %s", target);
+        return -1;
+    }
+
     if (model.kind == KC_STDIO_FILE_CONTRACT) {
-        int rc = kc_flow_build_contract_cli(&model, path, error, error_size);
+        int rc;
+        if (strcmp(target, "powershell") == 0) {
+            rc = kc_flow_build_contract_ps(&model, path, error, error_size);
+        } else {
+            rc = kc_flow_build_contract_bash(&model, path, error, error_size);
+        }
         kc_flow_model_free(&model);
         return rc;
     }
 
     {
-        int rc = kc_flow_build_flow_cli(&model, path, error, error_size);
+        int rc;
+        if (strcmp(target, "powershell") == 0) {
+            rc = kc_flow_build_flow_ps(&model, path, error, error_size);
+        } else {
+            rc = kc_flow_build_flow_cli(&model, path, error, error_size);
+        }
         kc_flow_model_free(&model);
         return rc;
     }

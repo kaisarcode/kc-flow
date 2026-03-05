@@ -167,17 +167,23 @@ EOF
     printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: nested flow output propagation failed."
     pass "Functional: Nested flow execution and chaining verified."
 
-    CLI_OUTPUT=$("$KC_BIN_EXEC" --cli "$EXAMPLE_FILE")
+    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE" --cli)
     printf '%s' "$CLI_OUTPUT" | grep -q "#!/usr/bin/env bash" || fail "Functional: --cli contract shebang missing."
     printf '%s' "$CLI_OUTPUT" | grep -q "Contract: kc.example.echo" || fail "Functional: --cli contract header missing."
     pass "Functional: CLI render for contract verified."
 
-    CLI_OUTPUT=$("$KC_BIN_EXEC" --cli "$FLOW_TMP_DIR/parent.flow")
+    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --cli)
     printf '%s' "$CLI_OUTPUT" | grep -q "declare -A V" || fail "Functional: --cli flow variable map missing."
     printf '%s' "$CLI_OUTPUT" | grep -q "step_child.out\" &" || fail "Functional: --cli flow node command missing."
     printf '%s' "$CLI_OUTPUT" | grep -q "^wait$" || fail "Functional: --cli flow wait barrier missing."
     printf '%s' "$CLI_OUTPUT" | grep -q "output.result=" || fail "Functional: --cli flow output mapping missing."
     pass "Functional: CLI render for flow verified."
+
+    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --cli powershell)
+    printf '%s' "$CLI_OUTPUT" | grep -q "Set-StrictMode -Version Latest" || fail "Functional: powershell header missing."
+    printf '%s' "$CLI_OUTPUT" | grep -q "\$V = @{}" || fail "Functional: powershell variable map missing."
+    printf '%s' "$CLI_OUTPUT" | grep -q "Write-Error \"\[kc-flow\] step node=child" || fail "Functional: powershell node step missing."
+    pass "Functional: CLI render for powershell flow verified."
 
     rm -rf "$FLOW_TMP_DIR"
     trap - RETURN

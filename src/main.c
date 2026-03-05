@@ -18,13 +18,14 @@
 static void kc_flow_help(const char *bin) {
     printf("Options:\n");
     printf("  --run <file>      Execute one flow file\n");
-    printf("  --cli <file>      Render flow as terminal script\n");
+    printf("  --run <file> --cli [bash|powershell]  Render flow as shell script\n");
     printf("  --help            Show help\n");
     printf("\n");
     printf("Examples:\n");
     printf("  %s --run /path/to/file.flow\n", bin);
     printf("  %s --run /path/to/file.flow --set input.user_text=hello\n", bin);
-    printf("  %s --cli /path/to/file.flow\n", bin);
+    printf("  %s --run /path/to/file.flow --cli\n", bin);
+    printf("  %s --run /path/to/file.flow --cli powershell\n", bin);
 }
 
 static int kc_flow_fail(const char *bin, const char *message) {
@@ -38,12 +39,24 @@ static int kc_flow_parse_run_overrides(
     char **argv,
     int start_index,
     kc_flow_overrides *overrides,
+    int *cli_mode,
+    const char **cli_shell,
     char *error,
     size_t error_size
 ) {
     int i;
+    *cli_mode = 0;
+    *cli_shell = "bash";
 
     for (i = start_index; i < argc; ++i) {
+        if (strcmp(argv[i], "--cli") == 0) {
+            *cli_mode = 1;
+            if (i + 1 < argc && strncmp(argv[i + 1], "--", 2) != 0) {
+                *cli_shell = argv[++i];
+            }
+            continue;
+        }
+
         const char *assignment;
         const char *equals;
         char key[256];
@@ -150,7 +163,7 @@ static int kc_flow_run(const char *path, const kc_flow_overrides *overrides) {
     return output.exit_code == 0 ? 0 : 1;
 }
 
-static int kc_flow_cli(const char *path) {
+static int kc_flow_cli(const char *shell, const char *path) {
     char error[256];
 
     if (!kc_flow_file_exists(path)) {
@@ -158,7 +171,7 @@ static int kc_flow_cli(const char *path) {
         return 1;
     }
 
-    if (kc_flow_build_cli(path, error, sizeof(error)) != 0) {
+    if (kc_flow_build_cli(path, shell, error, sizeof(error)) != 0) {
         fprintf(stderr, "Error: %s\n", error);
         return 1;
     }
@@ -169,6 +182,8 @@ static int kc_flow_cli(const char *path) {
 int main(int argc, char **argv) {
     kc_flow_overrides overrides;
     char run_error[256];
+    int cli_mode = 0;
+    const char *cli_shell = "bash";
 
     kc_flow_overrides_init(&overrides);
 
@@ -186,22 +201,26 @@ int main(int argc, char **argv) {
         if (argc < 3) {
             return kc_flow_fail(argv[0], "--run requires one file path.");
         }
-        if (kc_flow_parse_run_overrides(argc, argv, 3, &overrides, run_error, sizeof(run_error)) != 0) {
+        if (kc_flow_parse_run_overrides(argc,
+                                        argv,
+                                        3,
+                                        &overrides,
+                                        &cli_mode,
+                                        &cli_shell,
+                                        run_error,
+                                        sizeof(run_error)) != 0) {
             kc_flow_overrides_free(&overrides);
             return kc_flow_fail(argv[0], run_error);
+        }
+        if (cli_mode) {
+            kc_flow_overrides_free(&overrides);
+            return kc_flow_cli(cli_shell, argv[2]);
         }
         {
             int rc = kc_flow_run(argv[2], &overrides);
             kc_flow_overrides_free(&overrides);
             return rc;
         }
-    }
-
-    if (strcmp(argv[1], "--cli") == 0) {
-        if (argc != 3) {
-            return kc_flow_fail(argv[0], "--cli requires one file path.");
-        }
-        return kc_flow_cli(argv[2]);
     }
 
     return kc_flow_fail(argv[0], "Unknown argument.");

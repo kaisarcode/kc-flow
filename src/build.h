@@ -14,6 +14,7 @@
 
 int kc_flow_build_cli(
     const char *path,
+    const char *shell,
     char *error,
     size_t error_size
 );
