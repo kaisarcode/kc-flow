@@ -82,6 +82,16 @@ kc-flow --run /path/to/file.flow
 kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1024
 ```
 
+### Render execution chain (stdout)
+```bash
+# default shell: bash
+kc-flow --run /path/to/file.flow --cli
+
+# explicit shell
+kc-flow --run /path/to/file.flow --cli bash
+kc-flow --run /path/to/file.flow --cli powershell
+```
+
 ## Command Surface
 
 | Command | Description |
@@ -96,6 +106,7 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 
 - Intent: render runnable terminal chaining from contract topology.
 - Backends: `bash` and `powershell`.
+- Default backend: `bash`.
 - Renderer output should preserve deterministic wiring semantics.
 
 Status:
