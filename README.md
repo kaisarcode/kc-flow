@@ -112,7 +112,7 @@ Execution model:
 1. Parse `key=value` contract/flow.
 2. Build normalized graph from `node.*` and `link.*`.
 3. Validate endpoints/references and reject cycles.
-4. Execute nested graph runtime (runtime engine in progress).
+4. Execute nested graph runtime with deterministic node chaining.
 
 Node invocation contract:
 
