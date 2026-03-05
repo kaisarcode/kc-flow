@@ -102,7 +102,8 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 Status:
 
 - `--cli` command path exists.
-- Full chain renderer backend is pending implementation.
+- Contract and flow CLI renderer backend is implemented (`bash`).
+- Flow rendering is dependency-driven and deterministic.
 
 ## Implementation Notes
 

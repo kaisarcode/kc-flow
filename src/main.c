@@ -12,7 +12,7 @@
 
 #include "graph.h"
 #include "model.h"
-#include "render.h"
+#include "build.h"
 #include "runtime.h"
 
 static void kc_flow_help(const char *bin) {
@@ -158,7 +158,7 @@ static int kc_flow_cli(const char *path) {
         return 1;
     }
 
-    if (kc_flow_render_cli(path, error, sizeof(error)) != 0) {
+    if (kc_flow_build_cli(path, error, sizeof(error)) != 0) {
         fprintf(stderr, "Error: %s\n", error);
         return 1;
     }

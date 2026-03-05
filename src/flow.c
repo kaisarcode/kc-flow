@@ -111,6 +111,11 @@ int kc_flow_run_node(const kc_flow_model *model,
         return -1;
     }
 
+    fprintf(stderr,
+            "[kc-flow] step node=%s contract=%s\n",
+            node_id,
+            node_contract_path);
+
     kc_flow_model_init(&child);
     if (kc_flow_load_file(node_contract_path, &child, error, error_size) != 0 ||
         kc_flow_validate_model(&child, error, error_size) != 0) {
