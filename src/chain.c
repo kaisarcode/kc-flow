@@ -8,7 +8,6 @@
  */
 
 #include "chain.h"
-
 #include "link.h"
 
 #include <ctype.h>
@@ -62,8 +61,7 @@ static void kc_flow_print_sq(const char *text) {
     putchar('\'');
 }
 
-static int kc_flow_toposort(const kc_flow_model *model,
-                            char node_ids[][128],
+static int kc_flow_toposort(char node_ids[][128],
                             size_t node_count,
                             const kc_flow_link_entry *links,
                             size_t link_count,
@@ -75,7 +73,6 @@ static int kc_flow_toposort(const kc_flow_model *model,
     size_t queue[KC_STDIO_MAX_INDEXES];
     size_t head = 0, tail = 0, out_n = 0, i;
 
-    (void)model;
     memset(edges, 0, sizeof(edges));
     memset(indegree, 0, sizeof(indegree));
 
@@ -117,6 +114,37 @@ static int kc_flow_toposort(const kc_flow_model *model,
     }
     return 0;
 }
+static int kc_flow_compute_depths(char node_ids[][128],
+                                  size_t node_count,
+                                  const kc_flow_link_entry *links,
+                                  size_t link_count,
+                                  const size_t *order,
+                                  size_t *depth,
+                                  size_t *max_depth,
+                                  char *error,
+                                  size_t error_size) {
+    size_t i;
+    *max_depth = 0;
+    memset(depth, 0, sizeof(size_t) * KC_STDIO_MAX_INDEXES);
+    for (i = 0; i < node_count; ++i) {
+        size_t u = order[i];
+        size_t j;
+        for (j = 0; j < link_count; ++j) {
+            if (links[j].from.kind == KC_FLOW_ENDPOINT_NODE_OUT &&
+                links[j].to.kind == KC_FLOW_ENDPOINT_NODE_IN &&
+                strcmp(links[j].from.node_id, node_ids[u]) == 0) {
+                int v = kc_flow_find_node_index(node_ids, node_count, links[j].to.node_id);
+                if (v < 0) {
+                    snprintf(error, error_size, "Unable to compute flow levels.");
+                    return -1;
+                }
+                if (depth[(size_t)v] < depth[u] + 1) depth[(size_t)v] = depth[u] + 1;
+                if (*max_depth < depth[(size_t)v]) *max_depth = depth[(size_t)v];
+            }
+        }
+    }
+    return 0;
+}
 
 /**
  * Builds bash CLI for one composed flow.
@@ -133,17 +161,30 @@ int kc_flow_build_flow_cli(const kc_flow_model *model,
     kc_flow_link_entry links[KC_STDIO_MAX_INDEXES];
     char node_ids[KC_STDIO_MAX_INDEXES][128];
     size_t order[KC_STDIO_MAX_INDEXES];
+    size_t depth[KC_STDIO_MAX_INDEXES];
     size_t node_count = 0, link_count = 0, i;
+    size_t max_depth = 0;
     char flow_dir[1024];
 
     kc_flow_dirname(path, flow_dir, sizeof(flow_dir));
     if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0) return -1;
     if (kc_flow_collect_links(model, node_ids, node_count, links, &link_count, error, error_size) != 0) return -1;
     if (kc_flow_detect_cycle(model, node_ids, node_count, error, error_size) != 0) return -1;
-    if (kc_flow_toposort(model, node_ids, node_count, links, link_count, order, error, error_size) != 0) return -1;
+    if (kc_flow_toposort(node_ids, node_count, links, link_count, order, error, error_size) != 0) return -1;
+    if (kc_flow_compute_depths(node_ids,
+                               node_count,
+                               links,
+                               link_count,
+                               order,
+                               depth,
+                               &max_depth,
+                               error,
+                               error_size) != 0) return -1;
 
     printf("#!/usr/bin/env bash\nset -euo pipefail\n\n");
     printf("KC_FLOW_BIN=${KC_FLOW_BIN:-kc-flow}\ndeclare -A V\n\n");
+    printf("TMP_DIR=\"$(mktemp -d)\"\n");
+    printf("trap 'rm -rf \"$TMP_DIR\"' EXIT\n\n");
 
     for (i = 0; i < model->inputs.count; ++i) {
         char key[128];
@@ -157,62 +198,74 @@ int kc_flow_build_flow_cli(const kc_flow_model *model,
     }
     printf("\n");
 
-    for (i = 0; i < node_count; ++i) {
-        size_t idx = order[i];
-        const char *node_id = node_ids[idx];
-        int node_record = kc_flow_find_node_record(model, node_id);
-        char key[128], node_var[160], contract_path[1024];
-        const char *contract_rel;
-        size_t j;
+    for (i = 0; i <= max_depth; ++i) {
+        size_t k;
+        for (k = 0; k < node_count; ++k) {
+            size_t idx = order[k];
+            const char *node_id = node_ids[idx];
+            int node_record;
+            char key[128], node_var[160], contract_path[1024];
+            const char *contract_rel;
+            size_t j;
+            if (depth[idx] != i) continue;
 
-        if (node_record < 0) {
-            snprintf(error, error_size, "Unable to resolve node in build flow.");
-            return -1;
-        }
-        snprintf(key, sizeof(key), "node.%d.contract", node_record);
-        contract_rel = kc_flow_model_get(model, key);
-        if (contract_rel == NULL) {
-            snprintf(error, error_size, "Missing node contract path in build flow.");
-            return -1;
-        }
-        if (kc_flow_build_path(contract_path, sizeof(contract_path), flow_dir, contract_rel) != 0) {
-            snprintf(error, error_size, "Unable to resolve node path in build flow.");
-            return -1;
-        }
-
-        kc_flow_sanitize(node_var, sizeof(node_var), node_id);
-        printf("echo \"[kc-flow] step node=%s contract=", node_id);
-        kc_flow_print_sq(contract_path);
-        printf("\" >&2\n");
-
-        printf("step_%s=\"$(\"$KC_FLOW_BIN\" --run ", node_var);
-        kc_flow_print_sq(contract_path);
-        for (j = 0; j < link_count; ++j) {
-            if (links[j].to.kind == KC_FLOW_ENDPOINT_NODE_IN && strcmp(links[j].to.node_id, node_id) == 0) {
-                char src_key[192];
-                if (links[j].from.kind == KC_FLOW_ENDPOINT_INPUT) {
-                    snprintf(src_key, sizeof(src_key), "input.%s", links[j].from.field_id);
-                } else {
-                    snprintf(src_key, sizeof(src_key), "node.%s.out.%s", links[j].from.node_id, links[j].from.field_id);
-                }
-                printf(" --set \"input.%s=${V[\\\"%s\\\"]}\"", links[j].to.field_id, src_key);
+            node_record = kc_flow_find_node_record(model, node_id);
+            if (node_record < 0) {
+                snprintf(error, error_size, "Unable to resolve node in build flow.");
+                return -1;
             }
-        }
-        printf(")\"\n");
+            snprintf(key, sizeof(key), "node.%d.contract", node_record);
+            contract_rel = kc_flow_model_get(model, key);
+            if (contract_rel == NULL) {
+                snprintf(error, error_size, "Missing node contract path in build flow.");
+                return -1;
+            }
+            if (kc_flow_build_path(contract_path, sizeof(contract_path), flow_dir, contract_rel) != 0) {
+                snprintf(error, error_size, "Unable to resolve node path in build flow.");
+                return -1;
+            }
 
-        for (j = 0; j < link_count; ++j) {
-            if (links[j].from.kind == KC_FLOW_ENDPOINT_NODE_OUT && strcmp(links[j].from.node_id, node_id) == 0) {
-                printf("if ! printf '%%s\\n' \"$step_%s\" | grep -q '^output.%s='; then\n",
-                       node_var,
-                       links[j].from.field_id);
-                printf("  echo \"missing output.%s from node %s\" >&2\n", links[j].from.field_id, node_id);
-                printf("  exit 1\nfi\n");
-                printf("V[\"node.%s.out.%s\"]=\"$(printf '%%s\\n' \"$step_%s\" | ",
-                       node_id,
-                       links[j].from.field_id,
-                       node_var);
-                printf("grep '^output.%s=' | tail -n1 | cut -d= -f2-)\"\n",
-                       links[j].from.field_id);
+            kc_flow_sanitize(node_var, sizeof(node_var), node_id);
+            printf("echo \"[kc-flow] step node=%s contract=", node_id);
+            kc_flow_print_sq(contract_path);
+            printf("\" >&2\n");
+
+            printf("\"$KC_FLOW_BIN\" --run ");
+            kc_flow_print_sq(contract_path);
+            for (j = 0; j < link_count; ++j) {
+                if (links[j].to.kind == KC_FLOW_ENDPOINT_NODE_IN && strcmp(links[j].to.node_id, node_id) == 0) {
+                    char src_key[192];
+                    if (links[j].from.kind == KC_FLOW_ENDPOINT_INPUT) {
+                        snprintf(src_key, sizeof(src_key), "input.%s", links[j].from.field_id);
+                    } else {
+                        snprintf(src_key, sizeof(src_key), "node.%s.out.%s", links[j].from.node_id, links[j].from.field_id);
+                    }
+                    printf(" --set \"input.%s=${V[\\\"%s\\\"]}\"", links[j].to.field_id, src_key);
+                }
+            }
+            printf(" > \"$TMP_DIR/step_%s.out\" &\n", node_var);
+        }
+        printf("wait\n");
+        for (k = 0; k < node_count; ++k) {
+            size_t idx = order[k];
+            const char *node_id = node_ids[idx];
+            char node_var[160];
+            size_t j;
+            if (depth[idx] != i) continue;
+            kc_flow_sanitize(node_var, sizeof(node_var), node_id);
+            for (j = 0; j < link_count; ++j) {
+                if (links[j].from.kind == KC_FLOW_ENDPOINT_NODE_OUT && strcmp(links[j].from.node_id, node_id) == 0) {
+                    printf("if ! grep -q '^output.%s=' \"$TMP_DIR/step_%s.out\"; then\n",
+                           links[j].from.field_id,
+                           node_var);
+                    printf("  echo \"missing output.%s from node %s\" >&2\n", links[j].from.field_id, node_id);
+                    printf("  exit 1\nfi\n");
+                    printf("V[\"node.%s.out.%s\"]=\"$(grep '^output.%s=' \"$TMP_DIR/step_%s.out\" | tail -n1 | cut -d= -f2-)\"\n",
+                           node_id,
+                           links[j].from.field_id,
+                           links[j].from.field_id,
+                           node_var);
+                }
             }
         }
         printf("\n");

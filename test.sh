@@ -174,7 +174,8 @@ EOF
 
     CLI_OUTPUT=$("$KC_BIN_EXEC" --cli "$FLOW_TMP_DIR/parent.flow")
     printf '%s' "$CLI_OUTPUT" | grep -q "declare -A V" || fail "Functional: --cli flow variable map missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "step_child=" || fail "Functional: --cli flow node command missing."
+    printf '%s' "$CLI_OUTPUT" | grep -q "step_child.out\" &" || fail "Functional: --cli flow node command missing."
+    printf '%s' "$CLI_OUTPUT" | grep -q "^wait$" || fail "Functional: --cli flow wait barrier missing."
     printf '%s' "$CLI_OUTPUT" | grep -q "output.result=" || fail "Functional: --cli flow output mapping missing."
     pass "Functional: CLI render for flow verified."
 
