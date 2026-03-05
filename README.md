@@ -59,7 +59,7 @@ Invocation contexts:
 - Fan-in waits for required upstream values.
 - Cycles are invalid topologies and fail fast.
 
-Current graph validation includes:
+Graph validation includes:
 
 - endpoint format validation
 - node reference validation
@@ -102,18 +102,11 @@ kc-flow --run /path/to/file.flow --cli powershell
 
 ## CLI Rendering
 
-`--cli` is the export surface for reproducible chain execution.
+`--cli` exports reproducible chain execution.
 
-- Intent: render runnable terminal chaining from contract topology.
 - Backends: `bash` and `powershell`.
 - Default backend: `bash`.
 - Renderer output should preserve deterministic wiring semantics.
-
-Status:
-
-- `--cli` command path exists.
-- Contract and flow CLI renderer backends are implemented (`bash`, `powershell`).
-- Flow rendering is dependency-driven and deterministic.
 
 ## Implementation Notes
 
