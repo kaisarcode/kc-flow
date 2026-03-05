@@ -1,3 +1,12 @@
+/**
+ * model.h
+ * Summary: Shared file model, indexes, and contract/flow parsing interfaces.
+ *
+ * Author:  KaisarCode
+ * Website: https://kaisarcode.com
+ * License: GNU GPL v3.0
+ */
+
 #ifndef KC_FLOW_MODEL_H
 #define KC_FLOW_MODEL_H
 
