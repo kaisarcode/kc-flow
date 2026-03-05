@@ -105,11 +105,27 @@ static int kc_flow_run(const char *path, const kc_flow_overrides *overrides) {
     }
 
     if (model.kind == KC_STDIO_FILE_FLOW) {
-        if (kc_flow_run_flow(&model, overrides, path, error, sizeof(error)) != 0) {
+        kc_flow_overrides flow_outputs;
+        size_t i;
+
+        kc_flow_overrides_init(&flow_outputs);
+        if (kc_flow_run_flow(&model, overrides, path, &flow_outputs, error, sizeof(error)) != 0) {
             fprintf(stderr, "Error: %s\n", error);
+            kc_flow_overrides_free(&flow_outputs);
             kc_flow_model_free(&model);
             return 1;
         }
+
+        printf("run ok\n");
+        printf("path=%s\n", path);
+        printf("kind=flow\n");
+        printf("id=%s\n", model.id);
+        printf("engine=headless\n");
+        for (i = 0; i < flow_outputs.count; ++i) {
+            printf("%s=%s\n", flow_outputs.records[i].key, flow_outputs.records[i].value);
+        }
+
+        kc_flow_overrides_free(&flow_outputs);
         kc_flow_model_free(&model);
         return 0;
     }

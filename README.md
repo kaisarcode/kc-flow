@@ -23,6 +23,48 @@ Invocation contexts:
 - root flow: launched with `kc-flow --run <file>`
 - nested flow: referenced by another flow as a node
 
+## Architecture
+
+`kc-flow` is a script orchestrator, not a programming language runtime.
+
+- Contracts define structure (`key=value`).
+- Scripts/binaries define execution logic.
+- Parent scripts are responsible for chaining/handoff.
+- Nested execution is the normal model (`flow -> node -> contract/flow`).
+
+### Contract/Flow Model
+
+- Atomic contract:
+  - `contract.id`, `contract.name`
+  - `input.*`, `param.*`, `output.*`
+  - `runtime.script` (and optional runtime metadata)
+- Composed flow:
+  - `flow.id`, `flow.name`
+  - `node.N.id`, `node.N.contract`
+  - `link.N.from`, `link.N.to`
+
+### Endpoint Semantics
+
+- Source endpoints:
+  - `input.<id>`
+  - `node.<node_id>.out.<id>`
+- Destination endpoints:
+  - `node.<node_id>.in.<id>`
+  - `output.<id>`
+
+### Scheduling Semantics
+
+- Linear chains are sequential by dependency.
+- Fan-out branches are parallelizable.
+- Fan-in waits for required upstream values.
+- Cycles are invalid topologies and fail fast.
+
+Current graph validation includes:
+
+- endpoint format validation
+- node reference validation
+- cycle detection
+
 ## Usage
 
 ### Help
@@ -45,7 +87,37 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 | Command | Description |
 | :--- | :--- |
 | `--run <file> [--set key=value ...]` | Executes one flow file |
+| `--cli <file>` | Renders execution chain as terminal CLI script |
 | `--help` | Shows help |
+
+## CLI Rendering
+
+`--cli` is the export surface for reproducible chain execution.
+
+- Intent: render runnable terminal chaining from contract topology.
+- Baseline backend: `bash` (reference).
+- Future parity target: `powershell`.
+- Renderer output should preserve deterministic wiring semantics.
+
+Status:
+
+- `--cli` command path exists.
+- Full chain renderer backend is pending implementation.
+
+## Implementation Notes
+
+Execution model:
+
+1. Parse `key=value` contract/flow.
+2. Build normalized graph from `node.*` and `link.*`.
+3. Validate endpoints/references and reject cycles.
+4. Execute nested graph runtime (runtime engine in progress).
+
+Node invocation contract:
+
+- Parent passes resolved values via CLI args (`--set key=value`).
+- Child returns data through stdout (`output.<id>=<value>`).
+- Large payloads are handed off as paths.
 
 ## Testing
 
