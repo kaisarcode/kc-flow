@@ -82,12 +82,22 @@ kc-flow --run /path/to/file.flow
 kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1024
 ```
 
+### Render execution chain (stdout)
+```bash
+# default shell: bash
+kc-flow --run /path/to/file.flow --cli
+
+# explicit shell
+kc-flow --run /path/to/file.flow --cli bash
+kc-flow --run /path/to/file.flow --cli powershell
+```
+
 ## Command Surface
 
 | Command | Description |
 | :--- | :--- |
 | `--run <file> [--set key=value ...]` | Executes one flow file |
-| `--cli <file>` | Renders execution chain as terminal CLI script |
+| `--run <file> --cli [bash|powershell]` | Renders execution chain to stdout |
 | `--help` | Shows help |
 
 ## CLI Rendering
@@ -95,14 +105,14 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 `--cli` is the export surface for reproducible chain execution.
 
 - Intent: render runnable terminal chaining from contract topology.
-- Baseline backend: `bash` (reference).
-- Future parity target: `powershell`.
+- Backends: `bash` and `powershell`.
+- Default backend: `bash`.
 - Renderer output should preserve deterministic wiring semantics.
 
 Status:
 
 - `--cli` command path exists.
-- Contract and flow CLI renderer backend is implemented (`bash`).
+- Contract and flow CLI renderer backends are implemented (`bash`, `powershell`).
 - Flow rendering is dependency-driven and deterministic.
 
 ## Implementation Notes
