@@ -17,6 +17,10 @@ fail() {
     exit 1
 }
 
+fail_unavailable() {
+    fail "Remote asset is not available yet (repo may still be private): $URL"
+}
+
 detect_arch() {
     case "$(uname -s)" in
         Linux) ;;
@@ -33,7 +37,11 @@ detect_arch() {
 download_binary() {
     TMP_BIN=$(mktemp)
     URL="$REPO_URL/bin/$TARGET_ARCH/$APP_ID"
-    wget -qO "$TMP_BIN" "$URL" || fail "Unable to download binary."
+    if ! wget -qO "$TMP_BIN" "$URL"; then
+        rm -f "$TMP_BIN"
+        fail_unavailable
+    fi
+    [ -s "$TMP_BIN" ] || { rm -f "$TMP_BIN"; fail_unavailable; }
     chmod +x "$TMP_BIN"
 }
 
