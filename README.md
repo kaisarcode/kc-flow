@@ -1,5 +1,7 @@
 # kc-flow
 
+> **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
+
 `kc-flow` executes KaisarCode flow contracts with a deterministic headless runtime.
 
 ## Definitions
