@@ -94,13 +94,14 @@ kc-flow --run /path/to/file.flow --cli bash
 kc-flow --run /path/to/file.flow --cli powershell
 ```
 
-## Command Surface
+### Full Parameter Reference
 
-| Command | Description |
-| :--- | :--- |
-| `--run <file> [--set key=value ...]` | Executes one flow file |
-| `--run <file> --cli [bash|powershell]` | Renders execution chain to stdout |
-| `--help` | Shows help |
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--run` | Path to the flow file to execute | Required |
+| `--set` | Input or param override (format: `key=value`) | `NULL` |
+| `--cli` | Renders execution chain to stdout instead of running (`bash` or `powershell`) | `bash` |
+| `--help` | Shows help | `NULL` |
 
 ## CLI Rendering
 
@@ -157,13 +158,6 @@ make ARCH=arm64-v8a
 # Build All
 make all
 ```
-
-## Structure
-
-`kc-flow` follows the autonomous app layout:
-
-- binaries are built into `bin/<arch>/`
-- toolchains come from `/usr/local/share/kaisarcode/toolchains`
 
 ---
 
