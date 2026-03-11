@@ -1,250 +1,198 @@
 /**
  * runtime.c
- * Summary: Runtime output lifecycle and output materialization helpers.
+ * Summary: Model validation and composed flow execution.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
  * License: GNU GPL v3.0
  */
 
-#include "runtime.h"
+#include "flow.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 /**
- * Duplicates one C string.
- * @param text Source text.
- * @return char* Heap copy on success; NULL on error.
+ * Matches one destination prefix for one node input.
+ * @param endpoint Link destination endpoint.
+ * @param node_id Logical node id.
+ * @return int 1 when matched; otherwise 0.
  */
-static char *kc_flow_strdup(const char *text) {
-    size_t len;
-    char *copy;
-
-    if (text == NULL) {
-        return NULL;
-    }
-
-    len = strlen(text);
-    copy = malloc(len + 1);
-    if (copy == NULL) {
-        return NULL;
-    }
-
-    memcpy(copy, text, len + 1);
-    return copy;
-}
-
-/**
- * Releases buffers captured from one contract run.
- * @param output Captured runtime output.
- * @return void
- */
-void kc_flow_run_output_free(kc_flow_run_output *output) {
-    free(output->stdout_text);
-    free(output->stderr_text);
-    output->stdout_text = NULL;
-    output->stderr_text = NULL;
-    output->exit_code = 0;
-}
-
-/**
- * Finds one bind.output mapping by logical output id.
- * @param model Parsed contract model.
- * @param output_id Logical output id.
- * @param mode Output binding mode.
- * @param path Output binding path.
- * @return int 0 on success; non-zero if not found.
- */
-static int kc_flow_find_output_binding(
-    const kc_flow_model *model,
-    const char *output_id,
-    const char **mode,
-    const char **path
+static int kc_flow_is_node_input_endpoint(
+    const char *endpoint,
+    const char *node_id
 ) {
-    size_t i;
-    char key[128];
-    const char *current_id;
-
-    for (i = 0; i < model->bind_output.count; ++i) {
-        snprintf(
-            key,
-            sizeof(key),
-            "bind.output.%d.id",
-            model->bind_output.values[i]
-        );
-        current_id = kc_flow_model_get(model, key);
-        if (current_id != NULL && strcmp(current_id, output_id) == 0) {
-            snprintf(
-                key,
-                sizeof(key),
-                "bind.output.%d.mode",
-                model->bind_output.values[i]
-            );
-            *mode = kc_flow_model_get(model, key);
-            snprintf(
-                key,
-                sizeof(key),
-                "bind.output.%d.path",
-                model->bind_output.values[i]
-            );
-            *path = kc_flow_model_get(model, key);
-            return 0;
-        }
+    size_t node_len;
+    if (strncmp(endpoint, "node.", 5) != 0) {
+        return 0;
     }
-
-    return -1;
+    node_len = strlen(node_id);
+    if (strncmp(endpoint + 5, node_id, node_len) != 0) {
+        return 0;
+    }
+    return strncmp(endpoint + 5 + node_len, ".in.", 4) == 0;
 }
 
 /**
- * Materializes one bound output value from captured runtime data.
- * @param output_id Logical output id.
- * @param mode Binding mode.
- * @param path Binding path.
- * @param output Captured runtime output.
+ * Executes one flow.
+ * @param model Parsed model.
+ * @param overrides Runtime overrides.
+ * @param path Source path.
+ * @param outputs Output overrides.
  * @param error Error buffer.
  * @param error_size Error buffer size.
- * @return char* Heap value on success; NULL on error.
+ * @return int 0 on success; non-zero on failure.
  */
-static char *kc_flow_materialize_bound_output(
-    const char *output_id,
-    const char *mode,
+int kc_flow_run_flow(
+    const kc_flow_model *model,
+    const kc_flow_overrides *overrides,
     const char *path,
-    const kc_flow_run_output *output,
+    kc_flow_overrides *outputs,
     char *error,
     size_t error_size
 ) {
-    char buffer[64];
-
-    if (mode == NULL) {
-        snprintf(error, error_size, "Missing output binding mode for %s.", output_id);
-        return NULL;
-    }
-
-    if (strcmp(mode, "stdout") == 0) {
-        return kc_flow_strdup(output->stdout_text != NULL ? output->stdout_text : "");
-    }
-
-    if (strcmp(mode, "stderr") == 0) {
-        return kc_flow_strdup(output->stderr_text != NULL ? output->stderr_text : "");
-    }
-
-    if (strcmp(mode, "exit_code") == 0) {
-        snprintf(buffer, sizeof(buffer), "%d", output->exit_code);
-        return kc_flow_strdup(buffer);
-    }
-
-    if (strcmp(mode, "file") == 0) {
-        if (path == NULL) {
-            snprintf(error, error_size, "Missing file binding path for %s.", output_id);
-            return NULL;
-        }
-        return kc_flow_strdup(path);
-    }
-
-    snprintf(error, error_size, "Unsupported bind mode '%s' for %s.", mode, output_id);
-    return NULL;
-}
-
-/**
- * Collects bound `output.*` values from one contract run.
- * @param model Parsed contract model.
- * @param output Captured runtime output.
- * @param values Output key/value store (output.<id>=...).
- * @param error Error buffer.
- * @param error_size Error buffer size.
- * @return int 0 on success; non-zero on collection failure.
- */
-int kc_flow_collect_contract_outputs(
-    const kc_flow_model *model,
-    const kc_flow_run_output *output,
-    kc_flow_overrides *values,
-    char *error,
-    size_t error_size
-) {
-    size_t i;
-    char key[128];
-
-    for (i = 0; i < model->outputs.count; ++i) {
-        const char *output_id;
-        const char *mode;
-        const char *path;
-        char *materialized;
-        char output_key[160];
-
-        snprintf(key, sizeof(key), "output.%d.id", model->outputs.values[i]);
-        output_id = kc_flow_model_get(model, key);
-        if (output_id == NULL) {
-            continue;
-        }
-
-        mode = NULL;
-        path = NULL;
-        if (kc_flow_find_output_binding(model, output_id, &mode, &path) != 0) {
-            snprintf(
-                error,
-                error_size,
-                "Missing bind.output entry for output id: %s",
-                output_id
-            );
-            return -1;
-        }
-
-        materialized = kc_flow_materialize_bound_output(
-            output_id,
-            mode,
-            path,
-            output,
-            error,
-            error_size
-        );
-        if (materialized == NULL) {
-            return -1;
-        }
-
-        snprintf(output_key, sizeof(output_key), "output.%s", output_id);
-        if (kc_flow_overrides_add(values, output_key, materialized) != 0) {
-            free(materialized);
-            snprintf(error, error_size, "Unable to store contract output value.");
-            return -1;
-        }
-        free(materialized);
-    }
-
-    return 0;
-}
-
-/**
- * Emits normalized bound output lines from one contract run.
- * @param model Parsed contract model.
- * @param output Captured runtime output.
- * @return int 0 on success; non-zero on collection failure.
- */
-int kc_flow_print_contract_outputs(
-    const kc_flow_model *model,
-    const kc_flow_run_output *output
-) {
+    char node_ids[KC_FLOW_MAX_INDEXES][128];
+    unsigned char executed[KC_FLOW_MAX_INDEXES];
     kc_flow_overrides values;
+    char flow_dir[KC_FLOW_MAX_PATH];
+    size_t node_count;
+    size_t completed;
     size_t i;
-    char error[256];
-
+    memset(executed, 0, sizeof(executed));
     kc_flow_overrides_init(&values);
-    if (kc_flow_collect_contract_outputs(
-            model,
-            output,
-            &values,
-            error,
-            sizeof(error)
-        ) != 0) {
+    if (outputs != NULL) {
+        kc_flow_overrides_init(outputs);
+    }
+    kc_flow_dirname(path, flow_dir, sizeof(flow_dir));
+    if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0) {
         kc_flow_overrides_free(&values);
         return -1;
     }
-
-    for (i = 0; i < values.count; ++i) {
-        printf("%s=%s\n", values.records[i].key, values.records[i].value);
+    for (i = 0; i < overrides->count; ++i) {
+        if (kc_flow_overrides_add(&values, overrides->records[i].key, overrides->records[i].value) != 0) {
+            kc_flow_overrides_free(&values);
+            snprintf(error, error_size, "Unable to seed runtime values.");
+            return -1;
+        }
     }
-
+    completed = 0;
+    while (completed < node_count) {
+        int progressed;
+        progressed = 0;
+        for (i = 0; i < node_count; ++i) {
+            kc_flow_overrides node_inputs;
+            kc_flow_overrides node_outputs;
+            size_t j;
+            int ready;
+            if (executed[i]) {
+                continue;
+            }
+            kc_flow_overrides_init(&node_inputs);
+            kc_flow_overrides_init(&node_outputs);
+            ready = 1;
+            for (j = 0; j < model->links.count; ++j) {
+                const char *from;
+                const char *to;
+                char source_key[160];
+                const char *source_value;
+                const char *input_id;
+                from = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[j], "from");
+                to = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[j], "to");
+                if (from == NULL || to == NULL) {
+                    continue;
+                }
+                if (!kc_flow_is_node_input_endpoint(to, node_ids[i])) {
+                    continue;
+                }
+                if (snprintf(source_key, sizeof(source_key), "%s", from) >=
+                        (int)sizeof(source_key)) {
+                    kc_flow_overrides_free(&node_inputs);
+                    kc_flow_overrides_free(&node_outputs);
+                    kc_flow_overrides_free(&values);
+                    snprintf(error, error_size, "Source endpoint is too long.");
+                    return -1;
+                }
+                source_value = kc_flow_overrides_get(&values, source_key);
+                if (source_value == NULL) {
+                    ready = 0;
+                    break;
+                }
+                input_id = to + 5 + strlen(node_ids[i]) + 4;
+                if (strlen(input_id) + strlen("input.") >= sizeof(source_key)) {
+                    kc_flow_overrides_free(&node_inputs);
+                    kc_flow_overrides_free(&node_outputs);
+                    kc_flow_overrides_free(&values);
+                    snprintf(error, error_size, "Input endpoint is too long.");
+                    return -1;
+                }
+                if (snprintf(source_key, sizeof(source_key), "input.%s", input_id) >=
+                        (int)sizeof(source_key)) {
+                    kc_flow_overrides_free(&node_inputs);
+                    kc_flow_overrides_free(&node_outputs);
+                    kc_flow_overrides_free(&values);
+                    snprintf(error, error_size, "Unable to normalize node input.");
+                    return -1;
+                }
+                if (kc_flow_overrides_add(&node_inputs, source_key, source_value) != 0) {
+                    kc_flow_overrides_free(&node_inputs);
+                    kc_flow_overrides_free(&node_outputs);
+                    kc_flow_overrides_free(&values);
+                    snprintf(error, error_size, "Unable to prepare node inputs.");
+                    return -1;
+                }
+            }
+            if (!ready) {
+                kc_flow_overrides_free(&node_inputs);
+                kc_flow_overrides_free(&node_outputs);
+                continue;
+            }
+            if (kc_flow_run_node(model, flow_dir, node_ids[i], &node_inputs, &node_outputs, error, error_size) != 0) {
+                kc_flow_overrides_free(&node_inputs);
+                kc_flow_overrides_free(&node_outputs);
+                kc_flow_overrides_free(&values);
+                return -1;
+            }
+            for (j = 0; j < node_outputs.count; ++j) {
+                char key[192];
+                snprintf(key, sizeof(key), "node.%s.out.%s", node_ids[i], node_outputs.records[j].key + strlen("output."));
+                if (kc_flow_overrides_add(&values, key, node_outputs.records[j].value) != 0) {
+                    kc_flow_overrides_free(&node_inputs);
+                    kc_flow_overrides_free(&node_outputs);
+                    kc_flow_overrides_free(&values);
+                    snprintf(error, error_size, "Unable to store node output.");
+                    return -1;
+                }
+            }
+            executed[i] = 1;
+            completed++;
+            progressed = 1;
+            kc_flow_overrides_free(&node_inputs);
+            kc_flow_overrides_free(&node_outputs);
+        }
+        if (!progressed) {
+            kc_flow_overrides_free(&values);
+            snprintf(error, error_size, "Unable to resolve flow dependencies.");
+            return -1;
+        }
+    }
+    if (outputs != NULL) {
+        for (i = 0; i < model->links.count; ++i) {
+            const char *from;
+            const char *to;
+            const char *value;
+            from = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "from");
+            to = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "to");
+            if (from == NULL || to == NULL || strncmp(to, "output.", 7) != 0) {
+                continue;
+            }
+            value = kc_flow_overrides_get(&values, from);
+            if (value == NULL || kc_flow_overrides_add(outputs, to, value) != 0) {
+                kc_flow_overrides_free(&values);
+                snprintf(error, error_size, "Unable to resolve final outputs.");
+                return -1;
+            }
+        }
+    }
     kc_flow_overrides_free(&values);
     return 0;
 }

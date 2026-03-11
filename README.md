@@ -2,23 +2,27 @@
 
 > **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
 
-`kc-flow` executes KaisarCode flow contracts with a deterministic headless runtime.
+`kc-flow` executes machine-oriented flow graphs that compose contracts and
+nested flows through a deterministic headless runtime.
 
 ## Definitions
 
-- **Flow**: runtime execution unit (atomic or composed).
-- **Contract**: text file that defines a flow (`key=value`).
+- **Flow**: executable unit that may run directly or be referenced as one node
+    inside another flow.
+- **Contract**: atomic executable definition described with `key=value`
+    records.
 
-Contract structure:
+Flow structure:
 
 - identity: `flow.id`, `flow.name`
 - interface: `input.*`, `output.*`, `param.*`
 - atomic runtime: `runtime.*`, `bind.output.*`
-- composed graph: `node.*`, `link.*`, `expose.*`
+- composed graph: `node.*`, `link.*`
 
 ## Runtime Surface
 
-`kc-flow` provides a CLI runtime for executing flow contracts.
+`kc-flow` provides the runtime surface for executing one root flow or one
+atomic contract.
 
 Invocation contexts:
 
@@ -27,19 +31,19 @@ Invocation contexts:
 
 ## Architecture
 
-`kc-flow` is a script orchestrator, not a programming language runtime.
+`kc-flow` is a process-graph runtime, not a programming language runtime.
 
-- Contracts define structure (`key=value`).
-- Scripts/binaries define execution logic.
-- Parent scripts are responsible for chaining/handoff.
+- Contracts and flows define structure with `key=value`.
+- Atomic contracts execute one runtime command.
+- Composed flows schedule nodes by resolved dependencies.
 - Nested execution is the normal model (`flow -> node -> contract/flow`).
 
 ### Contract/Flow Model
 
-- Atomic contract uses `contract.id`, `contract.name`,
-    `input.*`, `param.*`, `output.*`, and `runtime.script`.
-- Composed flow uses `flow.id`, `flow.name`, `node.N.id`,
-    `node.N.contract`, `link.N.from`, and `link.N.to`.
+- Atomic contract uses `contract.id`, `contract.name`, `input.*`, `param.*`,
+    `output.*`, and `runtime.script`.
+- Composed flow uses `flow.id`, `flow.name`, `node.N.id`, `node.N.contract`,
+    `link.N.from`, and `link.N.to`.
 
 ### Endpoint Semantics
 
@@ -48,8 +52,8 @@ Invocation contexts:
 
 ### Scheduling Semantics
 
-- Linear chains are sequential by dependency.
-- Fan-out branches are parallelizable.
+- Linear chains are resolved sequentially by dependency.
+- Nested flows behave like any other node.
 - Fan-in waits for required upstream values.
 - Cycles are invalid topologies and fail fast.
 
@@ -82,22 +86,19 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 | :--- | :--- | :--- |
 | `--run` | Path to the flow file to execute | Required |
 | `--set` | Input or param override (format: `key=value`) | `NULL` |
+| `--fd-in` | Reserved root input descriptor | `stdin` |
+| `--fd-out` | Reserved root output descriptor | `stdout` |
 | `--help` | Shows help | `NULL` |
 
 ## Implementation Notes
 
 Execution model:
 
-1. Parse `key=value` contract/flow.
-2. Build normalized graph from `node.*` and `link.*`.
-3. Validate endpoints/references and reject cycles.
-4. Execute nested graph runtime with deterministic node chaining.
-
-Node invocation contract:
-
-- Parent passes resolved values via CLI args (`--set key=value`).
-- Child returns data through stdout (`output.<id>=<value>`).
-- Large payloads are handed off as paths.
+1. Parse one `key=value` contract or flow.
+2. Resolve indexed sections for params, inputs, outputs, nodes, and links.
+3. Validate graph references before execution.
+4. Execute ready nodes and publish their outputs into runtime state.
+5. Recurse into nested flows as closed execution units.
 
 ## Testing
 
