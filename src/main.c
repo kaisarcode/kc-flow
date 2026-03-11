@@ -102,6 +102,7 @@ static void kc_flow_help(const char *bin) {
     printf("  --workers <n>     Runtime worker process count\n");
     printf("  --fd-in <n>       Runtime input descriptor\n");
     printf("  --fd-out <n>      Runtime output descriptor\n");
+    printf("  --fd-status <n>   Runtime status descriptor\n");
     printf("  --help            Show help\n");
     printf("\n");
     printf("Examples:\n");
@@ -138,6 +139,7 @@ int main(int argc, char **argv) {
     cfg.workers = kc_flow_default_workers();
     cfg.fd_in = 0;
     cfg.fd_out = 1;
+    cfg.fd_status = -1;
     run_path = NULL;
     if (argc <= 1) {
         kc_flow_help(argv[0]);
@@ -207,6 +209,13 @@ int main(int argc, char **argv) {
             }
             continue;
         }
+        if (strcmp(argv[i], "--fd-status") == 0) {
+            if (i + 1 >= argc || kc_flow_parse_fd(argv[++i], &cfg.fd_status) != 0) {
+                kc_flow_overrides_free(&overrides);
+                return kc_flow_fail(argv[0], "Invalid value for --fd-status.");
+            }
+            continue;
+        }
         kc_flow_overrides_free(&overrides);
         return kc_flow_fail(argv[0], "Unknown argument.");
     }
@@ -225,11 +234,29 @@ int main(int argc, char **argv) {
         }
         if (kc_flow_load_file(run_path, &model, error, sizeof(error)) != 0 ||
                 kc_flow_validate_model(&model, error, sizeof(error)) != 0) {
+            kc_flow_status_write_run_event(
+                cfg.fd_status,
+                "run.finished",
+                model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+                model.id,
+                run_path,
+                "error",
+                error
+            );
             fprintf(stderr, "Error: %s\n", error);
             kc_flow_model_free(&model);
             kc_flow_overrides_free(&overrides);
             return 1;
         }
+        kc_flow_status_write_run_event(
+            cfg.fd_status,
+            "run.started",
+            model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+            model.id,
+            run_path,
+            NULL,
+            NULL
+        );
         if (model.kind == KC_FLOW_FILE_FLOW) {
             rc = kc_flow_run_flow(&model, &cfg, &overrides, run_path, error, sizeof(error));
         } else {
@@ -239,10 +266,20 @@ int main(int argc, char **argv) {
                 run_path,
                 cfg.fd_in,
                 cfg.fd_out,
+                cfg.fd_status,
                 error,
                 sizeof(error)
             );
         }
+        kc_flow_status_write_run_event(
+            cfg.fd_status,
+            "run.finished",
+            model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+            model.id,
+            run_path,
+            rc == 0 ? "ok" : "error",
+            rc == 0 ? NULL : error
+        );
         if (rc != 0) {
             fprintf(stderr, "Error: %s\n", error);
         }

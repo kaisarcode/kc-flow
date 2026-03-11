@@ -49,6 +49,8 @@ static void kc_flow_param_env_name(const char *text, char *buffer, size_t size) 
 
 #endif
 
+#if !defined(_WIN32)
+
 /**
  * Exports one environment variable.
  * @param key Environment key.
@@ -56,14 +58,8 @@ static void kc_flow_param_env_name(const char *text, char *buffer, size_t size) 
  * @return int 0 on success; non-zero on failure.
  */
 static int kc_flow_set_env(const char *key, const char *value) {
-#if defined(_WIN32)
-    return _putenv_s(key, value);
-#else
     return setenv(key, value, 1);
-#endif
 }
-
-#if !defined(_WIN32)
 
 /**
  * Exports runtime descriptors and node parameters to the child environment.
@@ -112,20 +108,16 @@ static int kc_flow_export_env(
     return 0;
 }
 
-#endif
-
 /**
  * Opens one null descriptor for child fallback I/O.
  * @param write_mode Non-zero for write access.
  * @return int Descriptor or -1.
  */
 static int kc_flow_open_null_fd(int write_mode) {
-#if defined(_WIN32)
-    return _open("NUL", write_mode ? _O_WRONLY : _O_RDONLY);
-#else
     return open("/dev/null", write_mode ? O_WRONLY : O_RDONLY);
-#endif
 }
+
+#endif
 
 /**
  * Executes one contract.
@@ -134,6 +126,7 @@ static int kc_flow_open_null_fd(int write_mode) {
  * @param cfg_path Source path.
  * @param fd_in Runtime input descriptor.
  * @param fd_out Runtime output descriptor.
+ * @param fd_status Runtime status descriptor.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
@@ -144,6 +137,7 @@ int kc_flow_run_contract(
     const char *cfg_path,
     int fd_in,
     int fd_out,
+    int fd_status,
     char *error,
     size_t error_size
 ) {
@@ -178,6 +172,7 @@ int kc_flow_run_contract(
 
         (void)fd_in;
         (void)fd_out;
+        (void)fd_status;
         rc = system(resolved_script);
         free(resolved_script);
         if (rc != 0) {
@@ -215,6 +210,7 @@ int kc_flow_run_contract(
             if (kc_flow_export_env(overrides, fd_in >= 0 ? 0 : -1, fd_out >= 0 ? 1 : -1) != 0) {
                 _exit(127);
             }
+            (void)fd_status;
             execl("/bin/sh", "sh", "-lc", resolved_script, (char *)NULL);
             _exit(127);
         }

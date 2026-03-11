@@ -104,13 +104,16 @@ int kc_flow_run_node(
 ) {
     int node_record;
     const char *target;
+    const char *target_kind;
     char path[KC_FLOW_MAX_PATH];
     kc_flow_model child;
     kc_flow_overrides node_params;
     int child_fd_out;
+    int status_fd;
 
     child_fd_out = *fd_out;
     *fd_out = -1;
+    status_fd = cfg != NULL ? cfg->fd_status : -1;
     node_record = kc_flow_find_node_record(model, node_id);
     if (node_record < 0) {
         snprintf(error, error_size, "Unknown node: %s", node_id);
@@ -131,6 +134,7 @@ int kc_flow_run_node(
         snprintf(error, error_size, "Node contract file not found: %s", path);
         return -1;
     }
+    target_kind = "contract";
     kc_flow_model_init(&child);
     kc_flow_overrides_init(&node_params);
     if (kc_flow_load_file(path, &child, error, error_size) != 0 ||
@@ -147,6 +151,9 @@ int kc_flow_run_node(
         kc_flow_model_free(&child);
         return -1;
     }
+    if (child.kind == KC_FLOW_FILE_FLOW) {
+        target_kind = "flow";
+    }
     if (child.outputs.count > 0 && child_fd_out < 0) {
         child_fd_out = kc_flow_create_artifact_fd(error, error_size);
     } else if (child.outputs.count == 0) {
@@ -157,6 +164,15 @@ int kc_flow_run_node(
         kc_flow_model_free(&child);
         return -1;
     }
+    kc_flow_status_write_node_event(
+        status_fd,
+        "node.started",
+        node_id,
+        target_kind,
+        path,
+        NULL,
+        NULL
+    );
     fprintf(stderr, "[kc-flow] step node=%s contract=%s\n", node_id, path);
     if (child.kind == KC_FLOW_FILE_FLOW) {
         int rc;
@@ -166,6 +182,15 @@ int kc_flow_run_node(
         nested_cfg.fd_in = fd_in;
         nested_cfg.fd_out = child_fd_out;
         rc = kc_flow_run_flow(&child, &nested_cfg, &node_params, path, error, error_size);
+        kc_flow_status_write_node_event(
+            status_fd,
+            "node.finished",
+            node_id,
+            target_kind,
+            path,
+            rc == 0 ? "ok" : "error",
+            rc == 0 ? NULL : error
+        );
         if (rc == 0) {
             *fd_out = child_fd_out;
         } else if (child_fd_out >= 0) {
@@ -184,8 +209,18 @@ int kc_flow_run_node(
             path,
             fd_in,
             child_fd_out,
+            status_fd,
             error,
             error_size
+        );
+        kc_flow_status_write_node_event(
+            status_fd,
+            "node.finished",
+            node_id,
+            target_kind,
+            path,
+            rc == 0 ? "ok" : "error",
+            rc == 0 ? NULL : error
         );
         if (rc == 0) {
             *fd_out = child_fd_out;

@@ -66,6 +66,11 @@ test_general() {
         fail "General: Invalid fd value should fail."
     fi
     pass "General: Invalid fd fail-fast verified."
+
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --fd-status bad >/dev/null 2>&1; then
+        fail "General: Invalid status fd value should fail."
+    fi
+    pass "General: Invalid status fd fail-fast verified."
 }
 
 # @brief Runs functional flow and contract behavior tests.
@@ -99,6 +104,17 @@ EOF
     OUTPUT=$(printf 'world' | "$KC_BIN_EXEC" --run "$INPUT_FILE" --set param.prefix=kc:)
     [ "$OUTPUT" = "kc:world" ] || fail "Functional: parameter override failed."
     pass "Functional: parameter override verified."
+
+    STATUS_FILE=$(mktemp)
+    trap 'rm -f "$INPUT_FILE" "$STATUS_FILE"' RETURN
+    exec 5> "$STATUS_FILE"
+    OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE" --fd-status 5)
+    exec 5>&-
+    [ "$OUTPUT" = "hello" ] || fail "Functional: status fd altered contract output."
+    grep -q 'event=run.started' "$STATUS_FILE" || fail "Functional: run start status missing."
+    grep -q 'event=run.finished' "$STATUS_FILE" || fail "Functional: run finish status missing."
+    rm -f "$STATUS_FILE"
+    trap 'rm -f "$INPUT_FILE"' RETURN
 
     FD_OUT_FILE=$(mktemp)
     trap 'rm -f "$INPUT_FILE" "$FD_OUT_FILE"' RETURN

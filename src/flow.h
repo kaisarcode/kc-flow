@@ -56,6 +56,7 @@ typedef struct kc_flow_runtime_cfg {
     size_t workers;
     int fd_in;
     int fd_out;
+    int fd_status;
 } kc_flow_runtime_cfg;
 
 typedef struct kc_flow_worker_handle {
@@ -115,6 +116,7 @@ int kc_flow_run_contract(
     const char *cfg_path,
     int fd_in,
     int fd_out,
+    int fd_status,
     char *error,
     size_t error_size
 );
@@ -228,6 +230,36 @@ int kc_flow_run_flow(
     const char *path,
     char *error,
     size_t error_size
+);
+int kc_flow_status_write_run_event(
+    int fd,
+    const char *event,
+    const char *kind,
+    const char *id,
+    const char *path,
+    const char *status,
+    const char *message
+);
+int kc_flow_status_write_node_event(
+    int fd,
+    const char *event,
+    const char *node,
+    const char *target_kind,
+    const char *target_path,
+    const char *status,
+    const char *message
+);
+int kc_flow_status_emit(
+    int fd,
+    const char *event,
+    const char *kind,
+    const char *id,
+    const char *path,
+    const char *node,
+    const char *target_kind,
+    const char *target_path,
+    const char *status,
+    const char *message
 );
 
 #endif

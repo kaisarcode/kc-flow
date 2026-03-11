@@ -41,6 +41,7 @@ Invocation contexts:
 - Composed flows schedule ready nodes by resolved dependencies.
 - Nested execution is the normal model (`flow -> node -> contract/flow`).
 - Root execution uses `--fd-in` and `--fd-out` for the public flow interface.
+- Runtime status can be observed separately through `--fd-status`.
 
 ### Contract/Flow Model
 
@@ -102,6 +103,14 @@ kc-flow --run /path/to/file.flow --fd-in 3 --fd-out 4
 Use explicit descriptors when the flow is embedded inside another runtime or
 parent process.
 
+### Run with a status descriptor
+```bash
+kc-flow --run /path/to/file.flow --fd-status 5
+```
+
+`--fd-status` emits one line per runtime event without changing the
+functional data path of the flow.
+
 ### Full Parameter Reference
 
 | Flag | Description | Default |
@@ -111,7 +120,17 @@ parent process.
 | `--workers` | Runtime worker process limit | CPU cores |
 | `--fd-in` | Runtime input descriptor | `0` |
 | `--fd-out` | Runtime output descriptor | `1` |
+| `--fd-status` | Runtime status descriptor | Disabled |
 | `--help` | Shows help | `NULL` |
+
+Status event examples:
+
+```text
+event=run.started pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow
+event=node.started pid=1001 kind=node node=child target_kind=flow target_path=/tmp/child.flow
+event=node.finished pid=1001 kind=node node=child target_kind=flow target_path=/tmp/child.flow status=ok
+event=run.finished pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow status=ok
+```
 
 ## Implementation Notes
 

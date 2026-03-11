@@ -10,6 +10,7 @@
 #include "flow.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int kc_flow_artifact_store(kc_flow_overrides *artifacts, const char *key, int fd);
