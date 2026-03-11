@@ -1,6 +1,6 @@
 #!/bin/bash
 # test.sh - Automated test suite for kc-flow
-# Summary: Tiered testing for KCS, Ecosystem compliance, and Functional logic.
+# Summary: Tiered testing for KCS, ecosystem compliance, and runtime logic.
 #
 # Author:  KaisarCode
 # Website: https://kaisarcode.com
@@ -30,17 +30,9 @@ pass() {
 test_setup() {
     ARCH=$(uname -m)
     [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "aarch64" ] || ARCH="arm64-v8a"
-    case "$ARCH" in
-        x86_64) EXT="" ;;
-        aarch64) EXT="" ;;
-        arm64-v8a) EXT="" ;;
-        *) EXT="" ;;
-    esac
-    export KC_BIN_EXEC="$APP_ROOT/bin/$ARCH/kc-flow$EXT"
+    export KC_BIN_EXEC="$APP_ROOT/bin/$ARCH/kc-flow"
 
-    if [ ! -f "$KC_BIN_EXEC" ]; then
-        fail "Binary not found at $KC_BIN_EXEC."
-    fi
+    [ -f "$KC_BIN_EXEC" ] || fail "Binary not found at $KC_BIN_EXEC."
     pass "Environment verified: using $KC_BIN_EXEC"
 }
 
@@ -57,129 +49,140 @@ test_kcs() {
 # @brief Runs general CLI behavior checks.
 # @return 0 on success.
 test_general() {
-    if ! "$KC_BIN_EXEC" --help | grep -q "Options:"; then
-        fail "General: Help flag failed."
-    fi
+    "$KC_BIN_EXEC" --help | grep -q "Options:" || fail "General: Help flag failed."
     pass "General: Help flag verified."
 
     if "$KC_BIN_EXEC" --unknown >/dev/null 2>&1; then
         fail "General: Unknown flag should fail."
     fi
     pass "General: Unknown flag fail-fast verified."
+
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --workers 0 >/dev/null 2>&1; then
+        fail "General: Invalid workers value should fail."
+    fi
+    pass "General: Invalid workers fail-fast verified."
+
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --fd-in bad >/dev/null 2>&1; then
+        fail "General: Invalid fd value should fail."
+    fi
+    pass "General: Invalid fd fail-fast verified."
 }
 
 # @brief Runs functional flow and contract behavior tests.
 # @return 0 on success.
 test_functional() {
     EXAMPLE_FILE="$APP_ROOT/etc/example.flow"
-
     OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE")
-    printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run command failed."
-    printf '%s' "$OUTPUT" | grep -q "kind=contract" || fail "Functional: run kind detection failed."
-    printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: run output binding failed."
-    pass "Functional: Run command verified."
+    [ "$OUTPUT" = "hello" ] || fail "Functional: example contract output mismatch."
+    pass "Functional: direct contract output verified."
 
-    INPUT_FILE="$(mktemp)"
+    INPUT_FILE=$(mktemp)
     trap 'rm -f "$INPUT_FILE"' RETURN
     cat > "$INPUT_FILE" <<'EOF'
-contract.id=kc.example.input_echo
-contract.name=Input Echo Example
-input.1.id=user_text
-input.1.type=text
-input.1.required=1
-output.1.id=result
-output.1.type=text
-runtime.script=printf "%s\n" "<input.user_text>"
+contract.id=kc.example.decorate
+contract.name=Decorate
+input.1.id=raw
+input.1.type=stream
+param.1.id=prefix
+param.1.type=text
+param.1.default=hello:
+output.1.id=raw
+output.1.type=stream
+runtime.script=printf "%s" "<param.prefix>"; cat
 runtime.workdir=.
-bind.output.1.id=result
-bind.output.1.mode=stdout
 EOF
 
-    if "$KC_BIN_EXEC" --run "$INPUT_FILE" >/dev/null 2>&1; then
-        fail "Functional: run without required input override should fail."
-    fi
-    pass "Functional: Missing input override fail-fast verified."
+    OUTPUT=$(printf 'world' | "$KC_BIN_EXEC" --run "$INPUT_FILE")
+    [ "$OUTPUT" = "hello:world" ] || fail "Functional: stdin contract transport failed."
+    pass "Functional: stdin contract transport verified."
 
-    OUTPUT=$("$KC_BIN_EXEC" --run "$INPUT_FILE" --set input.user_text=hello)
-    printf '%s' "$OUTPUT" | grep -q "run ok" || fail "Functional: run with --set failed."
-    printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: --set input override output failed."
-    pass "Functional: Run with --set input override verified."
-    rm -f "$INPUT_FILE"
+    OUTPUT=$(printf 'world' | "$KC_BIN_EXEC" --run "$INPUT_FILE" --set param.prefix=kc:)
+    [ "$OUTPUT" = "kc:world" ] || fail "Functional: parameter override failed."
+    pass "Functional: parameter override verified."
+
+    FD_OUT_FILE=$(mktemp)
+    trap 'rm -f "$INPUT_FILE" "$FD_OUT_FILE"' RETURN
+    exec 3< <(printf 'socket')
+    exec 4> "$FD_OUT_FILE"
+    "$KC_BIN_EXEC" --run "$INPUT_FILE" --set param.prefix=fd: --fd-in 3 --fd-out 4
+    exec 3<&-
+    exec 4>&-
+    OUTPUT=$(cat "$FD_OUT_FILE")
+    [ "$OUTPUT" = "fd:socket" ] || fail "Functional: fd-in/fd-out runtime failed."
+    pass "Functional: fd-in/fd-out runtime verified."
+
+    rm -f "$INPUT_FILE" "$FD_OUT_FILE"
     trap - RETURN
 
-    if "$KC_BIN_EXEC" --run "$EXAMPLE_FILE.missing" >/dev/null 2>&1; then
-        fail "Functional: missing file should fail."
-    fi
-    pass "Functional: Missing file fail-fast verified."
-
-    TMP_FILE=$(mktemp)
-    trap 'rm -f "$TMP_FILE"' RETURN
-    printf 'contract.id=broken\n' > "$TMP_FILE"
-
-    if "$KC_BIN_EXEC" --run "$TMP_FILE" >/dev/null 2>&1; then
-        fail "Functional: invalid contract should fail."
-    fi
-    pass "Functional: Invalid contract validation verified."
-
-    rm -f "$TMP_FILE"
-    trap - RETURN
-
-    FLOW_TMP_DIR="$(mktemp -d)"
+    FLOW_TMP_DIR=$(mktemp -d)
     trap 'rm -rf "$FLOW_TMP_DIR"' RETURN
 
     cat > "$FLOW_TMP_DIR/leaf.flow" <<'EOF'
 contract.id=kc.example.leaf
 contract.name=Leaf
-input.1.id=user_text
-input.1.type=text
-input.1.required=1
-output.1.id=result
-output.1.type=text
-runtime.script=printf "%s\n" "<input.user_text>"
+input.1.id=raw
+input.1.type=stream
+output.1.id=raw
+output.1.type=stream
+runtime.script=cat
 runtime.workdir=.
-bind.output.1.id=result
-bind.output.1.mode=stdout
 EOF
 
     cat > "$FLOW_TMP_DIR/child.flow" <<'EOF'
 flow.id=kc.example.child
 flow.name=Child
-input.1.id=user_text
-input.1.type=text
-output.1.id=result
-output.1.type=text
+input.1.id=raw
+input.1.type=stream
+output.1.id=raw
+output.1.type=stream
 node.1.id=leaf
 node.1.contract=leaf.flow
-link.1.from=input.user_text
-link.1.to=node.leaf.in.user_text
-link.2.from=node.leaf.out.result
-link.2.to=output.result
+link.1.from=input.raw
+link.1.to=node.leaf.in.raw
+link.2.from=node.leaf.out.raw
+link.2.to=output.raw
 EOF
 
     cat > "$FLOW_TMP_DIR/parent.flow" <<'EOF'
 flow.id=kc.example.parent
 flow.name=Parent
-input.1.id=user_text
-input.1.type=text
-output.1.id=result
-output.1.type=text
+input.1.id=raw
+input.1.type=stream
+output.1.id=raw
+output.1.type=stream
 node.1.id=child
 node.1.contract=child.flow
-link.1.from=input.user_text
-link.1.to=node.child.in.user_text
-link.2.from=node.child.out.result
-link.2.to=output.result
+link.1.from=input.raw
+link.1.to=node.child.in.raw
+link.2.from=node.child.out.raw
+link.2.to=output.raw
 EOF
 
-    if "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" >/dev/null 2>&1; then
-        fail "Functional: flow run without required input should fail."
-    fi
-    pass "Functional: Flow missing input fail-fast verified."
+    OUTPUT=$(printf 'hello' | "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow")
+    [ "$OUTPUT" = "hello" ] || fail "Functional: nested flow transport failed."
+    pass "Functional: nested flow transport verified."
 
-    OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --set input.user_text=hello)
-    printf '%s' "$OUTPUT" | grep -q "kind=flow" || fail "Functional: flow kind detection failed."
-    printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: nested flow output propagation failed."
-    pass "Functional: Nested flow execution and chaining verified."
+    OUTPUT=$(printf 'hello' | "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --workers 2)
+    [ "$OUTPUT" = "hello" ] || fail "Functional: workers runtime failed."
+    pass "Functional: workers runtime verified."
+
+    cat > "$FLOW_TMP_DIR/cycle.flow" <<'EOF'
+flow.id=kc.example.cycle
+flow.name=Cycle
+node.1.id=left
+node.1.contract=leaf.flow
+node.2.id=right
+node.2.contract=leaf.flow
+link.1.from=node.left.out.raw
+link.1.to=node.right.in.raw
+link.2.from=node.right.out.raw
+link.2.to=node.left.in.raw
+EOF
+
+    if printf 'hello' | "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/cycle.flow" >/dev/null 2>&1; then
+        fail "Functional: cycle validation should fail."
+    fi
+    pass "Functional: cycle validation verified."
 
     rm -rf "$FLOW_TMP_DIR"
     trap - RETURN

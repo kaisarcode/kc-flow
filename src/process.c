@@ -1,6 +1,6 @@
 /**
  * process.c
- * Summary: Atomic contract execution runtime.
+ * Summary: Atomic contract execution runtime with descriptor and env binding.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -11,13 +11,16 @@
 
 #include "flow.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #if defined(_WIN32)
+#include <io.h>
+#include <fcntl.h>
 #include <process.h>
 #else
-#include <errno.h>
-#include <string.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -25,123 +28,112 @@
 #if !defined(_WIN32)
 
 /**
- * Duplicates one string.
+ * Normalizes one parameter id into one environment variable suffix.
  * @param text Source text.
- * @return char* Heap copy or NULL.
+ * @param buffer Output buffer.
+ * @param size Output buffer size.
+ * @return void
  */
-static char *kc_flow_strdup(const char *text) {
-    size_t len;
-    char *copy;
+static void kc_flow_param_env_name(const char *text, char *buffer, size_t size) {
+    size_t i;
 
-    if (text == NULL) {
-        return NULL;
+    for (i = 0; i + 1 < size && text[i] != '\0'; ++i) {
+        if (isalnum((unsigned char)text[i])) {
+            buffer[i] = (char)toupper((unsigned char)text[i]);
+        } else {
+            buffer[i] = '_';
+        }
     }
-    len = strlen(text);
-    copy = malloc(len + 1);
-    if (copy == NULL) {
-        return NULL;
-    }
-    memcpy(copy, text, len + 1);
-    return copy;
+    buffer[i] = '\0';
 }
-#endif
 
-#if defined(_WIN32)
+#endif
 
 /**
- * Reads one file as text.
- * @param path Source path.
- * @return char* Text buffer or NULL.
+ * Exports one environment variable.
+ * @param key Environment key.
+ * @param value Environment value.
+ * @return int 0 on success; non-zero on failure.
  */
-static char *kc_flow_read_file_text(const char *path) {
-    FILE *fp;
-    long size;
-    char *buffer;
-    size_t read_size;
-
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        return NULL;
-    }
-    if (fseek(fp, 0, SEEK_END) != 0) {
-        fclose(fp);
-        return NULL;
-    }
-    size = ftell(fp);
-    if (size < 0 || fseek(fp, 0, SEEK_SET) != 0) {
-        fclose(fp);
-        return NULL;
-    }
-    buffer = malloc((size_t)size + 1);
-    if (buffer == NULL) {
-        fclose(fp);
-        return NULL;
-    }
-    read_size = fread(buffer, 1, (size_t)size, fp);
-    buffer[read_size] = '\0';
-    fclose(fp);
-    return buffer;
-}
+static int kc_flow_set_env(const char *key, const char *value) {
+#if defined(_WIN32)
+    return _putenv_s(key, value);
+#else
+    return setenv(key, value, 1);
 #endif
+}
 
 #if !defined(_WIN32)
 
 /**
- * Reads one descriptor as text.
- * @param fd Source descriptor.
- * @return char* Text buffer or NULL.
+ * Exports runtime descriptors and node parameters to the child environment.
+ * @param overrides Effective node parameters.
+ * @param fd_in Runtime input descriptor.
+ * @param fd_out Runtime output descriptor.
+ * @return int 0 on success; non-zero on failure.
  */
-static char *kc_flow_read_fd_text(int fd) {
-    char chunk[512];
-    char *buffer;
-    size_t size;
-    size_t capacity;
+static int kc_flow_export_env(
+    const kc_flow_overrides *overrides,
+    int fd_in,
+    int fd_out
+) {
+    size_t i;
+    char value[32];
 
-    capacity = sizeof(chunk);
-    buffer = malloc(capacity + 1);
-    if (buffer == NULL) {
-        return NULL;
+    if (fd_in >= 0) {
+        snprintf(value, sizeof(value), "%d", fd_in);
+        if (kc_flow_set_env("KC_FLOW_FD_IN", value) != 0) {
+            return -1;
+        }
     }
-    size = 0;
-    for (;;) {
-        ssize_t read_size;
-
-        read_size = read(fd, chunk, sizeof(chunk));
-        if (read_size < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            free(buffer);
-            return NULL;
+    if (fd_out >= 0) {
+        snprintf(value, sizeof(value), "%d", fd_out);
+        if (kc_flow_set_env("KC_FLOW_FD_OUT", value) != 0) {
+            return -1;
         }
-        if (read_size == 0) {
-            break;
-        }
-        while (size + (size_t)read_size > capacity) {
-            char *grown;
-
-            capacity *= 2;
-            grown = realloc(buffer, capacity + 1);
-            if (grown == NULL) {
-                free(buffer);
-                return NULL;
-            }
-            buffer = grown;
-        }
-        memcpy(buffer + size, chunk, (size_t)read_size);
-        size += (size_t)read_size;
     }
-    buffer[size] = '\0';
-    return buffer;
+    for (i = 0; i < overrides->count; ++i) {
+        char key[160];
+        char suffix[128];
+
+        if (strncmp(overrides->records[i].key, "param.", 6) != 0) {
+            continue;
+        }
+        kc_flow_param_env_name(
+            overrides->records[i].key + 6,
+            suffix,
+            sizeof(suffix)
+        );
+        snprintf(key, sizeof(key), "KC_FLOW_PARAM_%s", suffix);
+        if (kc_flow_set_env(key, overrides->records[i].value) != 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
+
 #endif
 
 /**
+ * Opens one null descriptor for child fallback I/O.
+ * @param write_mode Non-zero for write access.
+ * @return int Descriptor or -1.
+ */
+static int kc_flow_open_null_fd(int write_mode) {
+#if defined(_WIN32)
+    return _open("NUL", write_mode ? _O_WRONLY : _O_RDONLY);
+#else
+    return open("/dev/null", write_mode ? O_WRONLY : O_RDONLY);
+#endif
+}
+
+/**
  * Executes one contract.
- * @param model Parsed model.
- * @param overrides Runtime overrides.
+ * @param model Parsed contract.
+ * @param overrides Effective parameters.
  * @param cfg_path Source path.
- * @param output Captured output.
+ * @param fd_in Runtime input descriptor.
+ * @param fd_out Runtime output descriptor.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
@@ -150,7 +142,8 @@ int kc_flow_run_contract(
     const kc_flow_model *model,
     const kc_flow_overrides *overrides,
     const char *cfg_path,
-    kc_flow_run_output *output,
+    int fd_in,
+    int fd_out,
     char *error,
     size_t error_size
 ) {
@@ -159,7 +152,6 @@ int kc_flow_run_contract(
     char *resolved_script;
 
     resolved_script = NULL;
-    memset(output, 0, sizeof(*output));
     kc_flow_dirname(cfg_path, cfg_dir, sizeof(cfg_dir));
     if (kc_flow_build_path(
             workdir,
@@ -182,74 +174,57 @@ int kc_flow_run_contract(
     }
 #if defined(_WIN32)
     {
-        char command[KC_FLOW_MAX_PATH * 2];
         int rc;
 
-        snprintf(
-            command,
-            sizeof(command),
-            "cd /d \"%s\" && %s > kc-flow.out 2> kc-flow.err",
-            workdir,
-            resolved_script
-        );
-        rc = system(command);
-        output->exit_code = rc;
-        output->stdout_text = kc_flow_read_file_text("kc-flow.out");
-        output->stderr_text = kc_flow_read_file_text("kc-flow.err");
-        remove("kc-flow.out");
-        remove("kc-flow.err");
+        (void)fd_in;
+        (void)fd_out;
+        rc = system(resolved_script);
+        free(resolved_script);
+        if (rc != 0) {
+            snprintf(error, error_size, "Contract exited with non-zero status.");
+            return -1;
+        }
+        return 0;
     }
 #else
     {
-        int out_pipe[2];
-        int err_pipe[2];
         pid_t pid;
         int status;
 
-        if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
-            free(resolved_script);
-            snprintf(error, error_size, "Unable to create runtime pipes.");
-            return -1;
-        }
         pid = fork();
         if (pid < 0) {
             free(resolved_script);
-            close(out_pipe[0]);
-            close(out_pipe[1]);
-            close(err_pipe[0]);
-            close(err_pipe[1]);
             snprintf(error, error_size, "Unable to fork runtime process.");
             return -1;
         }
         if (pid == 0) {
+            int input_fd;
+            int output_fd;
+
             if (chdir(workdir) != 0) {
                 _exit(127);
             }
-            dup2(out_pipe[1], 1);
-            dup2(err_pipe[1], 2);
-            close(out_pipe[0]);
-            close(out_pipe[1]);
-            close(err_pipe[0]);
-            close(err_pipe[1]);
+            input_fd = fd_in >= 0 ? fd_in : kc_flow_open_null_fd(0);
+            output_fd = fd_out >= 0 ? fd_out : kc_flow_open_null_fd(1);
+            if (input_fd < 0 || output_fd < 0) {
+                _exit(127);
+            }
+            if (dup2(input_fd, 0) < 0 || dup2(output_fd, 1) < 0) {
+                _exit(127);
+            }
+            if (kc_flow_export_env(overrides, fd_in >= 0 ? 0 : -1, fd_out >= 0 ? 1 : -1) != 0) {
+                _exit(127);
+            }
             execl("/bin/sh", "sh", "-lc", resolved_script, (char *)NULL);
             _exit(127);
         }
-        close(out_pipe[1]);
-        close(err_pipe[1]);
         waitpid(pid, &status, 0);
-        output->stdout_text = kc_flow_read_fd_text(out_pipe[0]);
-        output->stderr_text = kc_flow_read_fd_text(err_pipe[0]);
-        close(out_pipe[0]);
-        close(err_pipe[0]);
-        if (output->stdout_text == NULL) {
-            output->stdout_text = kc_flow_strdup("");
+        free(resolved_script);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            snprintf(error, error_size, "Contract exited with non-zero status.");
+            return -1;
         }
-        if (output->stderr_text == NULL) {
-            output->stderr_text = kc_flow_strdup("");
-        }
-        output->exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
     }
 #endif
-    free(resolved_script);
     return 0;
 }

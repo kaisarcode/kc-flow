@@ -11,6 +11,84 @@
 
 #include <stdio.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+/**
+ * Detects the default worker count.
+ * @return size_t One or more workers.
+ */
+static size_t kc_flow_default_workers(void) {
+#if defined(_WIN32)
+    SYSTEM_INFO info;
+
+    GetSystemInfo(&info);
+    return info.dwNumberOfProcessors > 0 ? (size_t)info.dwNumberOfProcessors : 1;
+#else
+    long value;
+
+    value = sysconf(_SC_NPROCESSORS_ONLN);
+    return value > 0 ? (size_t)value : 1;
+#endif
+}
+
+/**
+ * Parses one strict worker count.
+ * @param text Source text.
+ * @param workers Output worker count.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_parse_workers(const char *text, size_t *workers) {
+    size_t value;
+    const char *cursor;
+
+    if (text == NULL || text[0] == '\0') {
+        return -1;
+    }
+    value = 0;
+    cursor = text;
+    while (*cursor != '\0') {
+        if (*cursor < '0' || *cursor > '9') {
+            return -1;
+        }
+        value = value * 10 + (size_t)(*cursor - '0');
+        cursor++;
+    }
+    if (value == 0) {
+        return -1;
+    }
+    *workers = value;
+    return 0;
+}
+
+/**
+ * Parses one strict descriptor value.
+ * @param text Source text.
+ * @param fd Output descriptor.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_parse_fd(const char *text, int *fd) {
+    int value;
+    const char *cursor;
+
+    if (text == NULL || text[0] == '\0') {
+        return -1;
+    }
+    value = 0;
+    cursor = text;
+    while (*cursor != '\0') {
+        if (*cursor < '0' || *cursor > '9') {
+            return -1;
+        }
+        value = value * 10 + (*cursor - '0');
+        cursor++;
+    }
+    *fd = value;
+    return 0;
+}
 
 /**
  * Prints command help.
@@ -21,8 +99,9 @@ static void kc_flow_help(const char *bin) {
     printf("Options:\n");
     printf("  --run <file>      Execute one flow file\n");
     printf("  --set key=value   Inject one input or param override\n");
-    printf("  --fd-in <n>       Reserved runtime input descriptor\n");
-    printf("  --fd-out <n>      Reserved runtime output descriptor\n");
+    printf("  --workers <n>     Runtime worker process count\n");
+    printf("  --fd-in <n>       Runtime input descriptor\n");
+    printf("  --fd-out <n>      Runtime output descriptor\n");
     printf("  --help            Show help\n");
     printf("\n");
     printf("Examples:\n");
@@ -50,11 +129,15 @@ static int kc_flow_fail(const char *bin, const char *message) {
  */
 int main(int argc, char **argv) {
     kc_flow_overrides overrides;
+    kc_flow_runtime_cfg cfg;
     const char *run_path;
     char error[256];
     int i;
 
     kc_flow_overrides_init(&overrides);
+    cfg.workers = kc_flow_default_workers();
+    cfg.fd_in = 0;
+    cfg.fd_out = 1;
     run_path = NULL;
     if (argc <= 1) {
         kc_flow_help(argv[0]);
@@ -103,12 +186,25 @@ int main(int argc, char **argv) {
             }
             continue;
         }
-        if (strcmp(argv[i], "--fd-in") == 0 || strcmp(argv[i], "--fd-out") == 0) {
-            if (i + 1 >= argc) {
+        if (strcmp(argv[i], "--workers") == 0) {
+            if (i + 1 >= argc || kc_flow_parse_workers(argv[++i], &cfg.workers) != 0) {
                 kc_flow_overrides_free(&overrides);
-                return kc_flow_fail(argv[0], "Descriptor flag requires a value.");
+                return kc_flow_fail(argv[0], "Invalid value for --workers.");
             }
-            ++i;
+            continue;
+        }
+        if (strcmp(argv[i], "--fd-in") == 0) {
+            if (i + 1 >= argc || kc_flow_parse_fd(argv[++i], &cfg.fd_in) != 0) {
+                kc_flow_overrides_free(&overrides);
+                return kc_flow_fail(argv[0], "Invalid value for --fd-in.");
+            }
+            continue;
+        }
+        if (strcmp(argv[i], "--fd-out") == 0) {
+            if (i + 1 >= argc || kc_flow_parse_fd(argv[++i], &cfg.fd_out) != 0) {
+                kc_flow_overrides_free(&overrides);
+                return kc_flow_fail(argv[0], "Invalid value for --fd-out.");
+            }
             continue;
         }
         kc_flow_overrides_free(&overrides);
@@ -120,11 +216,9 @@ int main(int argc, char **argv) {
     }
     {
         kc_flow_model model;
-        kc_flow_overrides outputs;
         int rc;
 
         kc_flow_model_init(&model);
-        kc_flow_overrides_init(&outputs);
         if (!kc_flow_file_exists(run_path)) {
             kc_flow_overrides_free(&overrides);
             return kc_flow_fail(argv[0], "contract or flow file not found.");
@@ -133,44 +227,26 @@ int main(int argc, char **argv) {
                 kc_flow_validate_model(&model, error, sizeof(error)) != 0) {
             fprintf(stderr, "Error: %s\n", error);
             kc_flow_model_free(&model);
-            kc_flow_overrides_free(&outputs);
             kc_flow_overrides_free(&overrides);
             return 1;
         }
         if (model.kind == KC_FLOW_FILE_FLOW) {
-            size_t j;
-
-            rc = kc_flow_run_flow(&model, &overrides, run_path, &outputs, error, sizeof(error));
-            if (rc == 0) {
-                printf("run ok\n");
-                printf("path=%s\n", run_path);
-                printf("kind=flow\n");
-                printf("id=%s\n", model.id);
-                for (j = 0; j < outputs.count; ++j) {
-                    printf("%s=%s\n", outputs.records[j].key, outputs.records[j].value);
-                }
-            }
+            rc = kc_flow_run_flow(&model, &cfg, &overrides, run_path, error, sizeof(error));
         } else {
-            kc_flow_run_output output;
-
-            rc = kc_flow_run_contract(&model, &overrides, run_path, &output, error, sizeof(error));
-            if (rc == 0 && output.exit_code == 0) {
-                printf("run ok\n");
-                printf("path=%s\n", run_path);
-                printf("kind=contract\n");
-                printf("id=%s\n", model.id);
-                rc = kc_flow_print_contract_outputs(&model, &output);
-            } else if (rc == 0) {
-                snprintf(error, sizeof(error), "Contract exited with non-zero status.");
-                rc = -1;
-            }
-            kc_flow_run_output_free(&output);
+            rc = kc_flow_run_contract(
+                &model,
+                &overrides,
+                run_path,
+                cfg.fd_in,
+                cfg.fd_out,
+                error,
+                sizeof(error)
+            );
         }
         if (rc != 0) {
             fprintf(stderr, "Error: %s\n", error);
         }
         kc_flow_model_free(&model);
-        kc_flow_overrides_free(&outputs);
         kc_flow_overrides_free(&overrides);
         return rc == 0 ? 0 : 1;
     }

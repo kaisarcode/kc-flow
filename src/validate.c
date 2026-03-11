@@ -29,6 +29,10 @@ int kc_flow_validate_model(
         snprintf(error, error_size, "Missing id or name.");
         return -1;
     }
+    if (model->inputs.count > 1 || model->outputs.count > 1) {
+        snprintf(error, error_size, "Only one input and one output are supported.");
+        return -1;
+    }
     if (model->kind == KC_FLOW_FILE_CONTRACT) {
         if (model->runtime_script == NULL) {
             snprintf(error, error_size, "Missing required key: runtime.script");
@@ -74,5 +78,5 @@ int kc_flow_validate_model(
             return -1;
         }
     }
-    return 0;
+    return kc_flow_validate_cycles(model, error, error_size);
 }

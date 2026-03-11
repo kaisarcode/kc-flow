@@ -2,27 +2,26 @@
 
 > **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
 
-`kc-flow` executes machine-oriented flow graphs that compose contracts and
-nested flows through a deterministic headless runtime.
+`kc-flow` executes machine-oriented flow graphs that compose commands and
+nested flows through a headless runtime.
 
 ## Definitions
 
 - **Flow**: executable unit that may run directly or be referenced as one node
     inside another flow.
-- **Contract**: atomic executable definition described with `key=value`
-    records.
+- **Contract**: atomic node definition described with `key=value` records.
 
 Flow structure:
 
 - identity: `flow.id`, `flow.name`
 - interface: `input.*`, `output.*`, `param.*`
-- atomic runtime: `runtime.*`, `bind.output.*`
+- atomic runtime: `runtime.*`
 - composed graph: `node.*`, `link.*`
 
 ## Runtime Surface
 
 `kc-flow` provides the runtime surface for executing one root flow or one
-atomic contract.
+atomic contract definition.
 
 Invocation contexts:
 
@@ -34,9 +33,12 @@ Invocation contexts:
 `kc-flow` is a process-graph runtime, not a programming language runtime.
 
 - Contracts and flows define structure with `key=value`.
-- Atomic contracts execute one runtime command.
-- Composed flows schedule nodes by resolved dependencies.
+- One node executes one command or script.
+- One node receives raw input through one runtime descriptor.
+- One node receives its declared parameters as environment for that execution.
+- Composed flows schedule ready nodes by resolved dependencies.
 - Nested execution is the normal model (`flow -> node -> contract/flow`).
+- Root execution uses `--fd-in` and `--fd-out` for the public flow interface.
 
 ### Contract/Flow Model
 
@@ -50,12 +52,17 @@ Invocation contexts:
 - Source endpoints are `input.<id>` and `node.<node_id>.out.<id>`.
 - Destination endpoints are `node.<node_id>.in.<id>` and `output.<id>`.
 
-### Scheduling Semantics
+### Execution Semantics
 
-- Linear chains are resolved sequentially by dependency.
+- Ready nodes are dispatched by dependency order.
+- Runtime concurrency is limited by `--workers`.
 - Nested flows behave like any other node.
-- Fan-in waits for required upstream values.
 - Cycles are invalid topologies and fail fast.
+- Loop semantics are not supported in this stage.
+- Runtime transport is descriptor-based.
+- Node parameters remain internal to the node and are exported to its process
+    environment.
+- The runtime does not parse one node output to rebuild the next node CLI.
 
 Graph validation includes:
 
@@ -75,9 +82,19 @@ kc-flow --help
 kc-flow --run /path/to/file.flow
 ```
 
-### Run with input/param overrides
+### Run with parameter overrides
 ```bash
-kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1024
+kc-flow --run /path/to/file.flow --set param.width=1024
+```
+
+### Run with a custom worker limit
+```bash
+kc-flow --run /path/to/file.flow --workers 2
+```
+
+### Run with explicit descriptors
+```bash
+kc-flow --run /path/to/file.flow --fd-in 3 --fd-out 4
 ```
 
 ### Full Parameter Reference
@@ -85,9 +102,10 @@ kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--run` | Path to the flow file to execute | Required |
-| `--set` | Input or param override (format: `key=value`) | `NULL` |
-| `--fd-in` | Reserved root input descriptor | `stdin` |
-| `--fd-out` | Reserved root output descriptor | `stdout` |
+| `--set` | Parameter override (format: `key=value`) | `NULL` |
+| `--workers` | Runtime worker process limit | CPU cores |
+| `--fd-in` | Runtime input descriptor | `0` |
+| `--fd-out` | Runtime output descriptor | `1` |
 | `--help` | Shows help | `NULL` |
 
 ## Implementation Notes
@@ -97,8 +115,9 @@ Execution model:
 1. Parse one `key=value` contract or flow.
 2. Resolve indexed sections for params, inputs, outputs, nodes, and links.
 3. Validate graph references before execution.
-4. Execute ready nodes and publish their outputs into runtime state.
-5. Recurse into nested flows as closed execution units.
+4. Execute ready nodes with raw input plus declared node parameters.
+5. Publish node outputs as runtime transport artifacts.
+6. Recurse into nested flows as closed execution units.
 
 ## Testing
 

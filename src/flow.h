@@ -39,13 +39,10 @@ typedef struct kc_flow_model {
     const char *id;
     const char *name;
     const char *runtime_script;
-    const char *runtime_exec;
     const char *runtime_workdir;
-    const char *runtime_stdin;
     kc_flow_index_set params;
     kc_flow_index_set inputs;
     kc_flow_index_set outputs;
-    kc_flow_index_set bind_output;
     kc_flow_index_set nodes;
     kc_flow_index_set links;
 } kc_flow_model;
@@ -55,11 +52,16 @@ typedef struct kc_flow_overrides {
     size_t count;
 } kc_flow_overrides;
 
-typedef struct kc_flow_run_output {
-    char *stdout_text;
-    char *stderr_text;
-    int exit_code;
-} kc_flow_run_output;
+typedef struct kc_flow_runtime_cfg {
+    size_t workers;
+    int fd_in;
+    int fd_out;
+} kc_flow_runtime_cfg;
+
+typedef struct kc_flow_worker_handle {
+    long pid;
+    int output_fd;
+} kc_flow_worker_handle;
 
 int kc_flow_file_exists(const char *path);
 void kc_flow_model_init(kc_flow_model *model);
@@ -111,7 +113,8 @@ int kc_flow_run_contract(
     const kc_flow_model *model,
     const kc_flow_overrides *overrides,
     const char *cfg_path,
-    kc_flow_run_output *output,
+    int fd_in,
+    int fd_out,
     char *error,
     size_t error_size
 );
@@ -122,20 +125,21 @@ char *kc_flow_resolve_template(
     char *error,
     size_t error_size
 );
-void kc_flow_run_output_free(kc_flow_run_output *output);
-int kc_flow_collect_contract_outputs(
+int kc_flow_collect_node_params(
     const kc_flow_model *model,
-    const kc_flow_run_output *output,
-    kc_flow_overrides *values,
+    int node_record,
+    const kc_flow_overrides *runtime_params,
+    kc_flow_overrides *node_params,
     char *error,
     size_t error_size
 );
-int kc_flow_print_contract_outputs(
-    const kc_flow_model *model,
-    const kc_flow_run_output *output
-);
 
 int kc_flow_validate_model(
+    const kc_flow_model *model,
+    char *error,
+    size_t error_size
+);
+int kc_flow_validate_cycles(
     const kc_flow_model *model,
     char *error,
     size_t error_size
@@ -147,20 +151,81 @@ int kc_flow_collect_node_ids(
     char *error,
     size_t error_size
 );
+int kc_flow_seed_flow_input(
+    const kc_flow_model *model,
+    int fd_in,
+    kc_flow_overrides *artifacts,
+    char *error,
+    size_t error_size
+);
+int kc_flow_create_artifact_fd(char *error, size_t error_size);
+int kc_flow_dup_artifact_fd(int fd, char *error, size_t error_size);
+int kc_flow_copy_artifact_fd(int src, int dst);
+void kc_flow_release_fd(int fd);
+int kc_flow_prepare_node_input(
+    const kc_flow_model *model,
+    const kc_flow_overrides *artifacts,
+    const char *node_id,
+    int *fd_in,
+    char *error,
+    size_t error_size
+);
+int kc_flow_publish_node_output(
+    const kc_flow_model *model,
+    kc_flow_overrides *artifacts,
+    const char *node_id,
+    int fd_out,
+    char *error,
+    size_t error_size
+);
+int kc_flow_collect_final_output(
+    const kc_flow_model *model,
+    const kc_flow_overrides *artifacts,
+    int *fd_out,
+    char *error,
+    size_t error_size
+);
+int kc_flow_flush_flow_output(
+    const kc_flow_model *model,
+    const kc_flow_overrides *artifacts,
+    int fd_out,
+    char *error,
+    size_t error_size
+);
+void kc_flow_cleanup_artifacts(kc_flow_overrides *artifacts);
 int kc_flow_run_node(
     const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
     const char *flow_dir,
     const char *node_id,
-    const kc_flow_overrides *node_inputs,
-    kc_flow_overrides *node_outputs,
+    const kc_flow_overrides *runtime_params,
+    int fd_in,
+    int *fd_out,
+    char *error,
+    size_t error_size
+);
+int kc_flow_start_flow_node(
+    const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
+    const char *flow_dir,
+    const char *node_id,
+    const kc_flow_overrides *runtime_params,
+    int fd_in,
+    kc_flow_worker_handle *handle,
+    char *error,
+    size_t error_size
+);
+int kc_flow_finish_flow_node(
+    kc_flow_worker_handle *handle,
+    int *fd_out,
     char *error,
     size_t error_size
 );
 int kc_flow_run_flow(
     const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
     const kc_flow_overrides *overrides,
     const char *path,
-    kc_flow_overrides *outputs,
     char *error,
     size_t error_size
 );

@@ -1,6 +1,6 @@
 /**
  * output.c
- * Summary: Runtime template resolution and output materialization.
+ * Summary: Runtime template resolution and effective node parameter binding.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -144,112 +144,65 @@ char *kc_flow_resolve_template(
 }
 
 /**
- * Frees one run output.
- * @param output Output struct.
- * @return void
- */
-void kc_flow_run_output_free(kc_flow_run_output *output) {
-    free(output->stdout_text);
-    free(output->stderr_text);
-    output->stdout_text = NULL;
-    output->stderr_text = NULL;
-    output->exit_code = 0;
-}
-
-/**
- * Collects contract outputs into one override store.
- * @param model Parsed model.
- * @param output Captured output.
- * @param values Output store.
+ * Collects effective node parameters from runtime and node-local definitions.
+ * @param model Parent model.
+ * @param node_record Numeric node record id.
+ * @param runtime_params Runtime override store.
+ * @param node_params Output node parameter store.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
  */
-int kc_flow_collect_contract_outputs(
+int kc_flow_collect_node_params(
     const kc_flow_model *model,
-    const kc_flow_run_output *output,
-    kc_flow_overrides *values,
+    int node_record,
+    const kc_flow_overrides *runtime_params,
+    kc_flow_overrides *node_params,
     char *error,
     size_t error_size
 ) {
     size_t i;
+    char prefix[64];
 
-    for (i = 0; i < model->outputs.count; ++i) {
-        const char *output_id;
-        const char *mode;
+    kc_flow_overrides_init(node_params);
+    for (i = 0; i < runtime_params->count; ++i) {
+        if (strncmp(runtime_params->records[i].key, "param.", 6) != 0) {
+            continue;
+        }
+        if (kc_flow_overrides_add(
+                node_params,
+                runtime_params->records[i].key,
+                runtime_params->records[i].value
+            ) != 0) {
+            snprintf(error, error_size, "Unable to seed node parameters.");
+            kc_flow_overrides_free(node_params);
+            return -1;
+        }
+    }
+    snprintf(prefix, sizeof(prefix), "node.%d.param.", node_record);
+    for (i = 0; i < model->record_count; ++i) {
         char key[128];
-        const char *materialized;
+        char *resolved;
 
-        output_id = kc_flow_lookup_indexed_value(
-            model,
-            &model->outputs,
-            "output.",
-            model->outputs.values[i],
-            "id"
-        );
-        if (output_id == NULL) {
+        if (strncmp(model->records[i].key, prefix, strlen(prefix)) != 0) {
             continue;
         }
-        mode = kc_flow_lookup_indexed_id_value(
+        snprintf(key, sizeof(key), "param.%s", model->records[i].key + strlen(prefix));
+        resolved = kc_flow_resolve_template(
             model,
-            &model->bind_output,
-            "bind.output.",
-            output_id,
-            "mode"
+            runtime_params,
+            model->records[i].value,
+            error,
+            error_size
         );
-        if (mode == NULL) {
-            snprintf(error, error_size, "Missing bind.output for %s.", output_id);
+        if (resolved == NULL ||
+                kc_flow_overrides_add(node_params, key, resolved) != 0) {
+            free(resolved);
+            snprintf(error, error_size, "Unable to store node parameter.");
+            kc_flow_overrides_free(node_params);
             return -1;
         }
-        if (strcmp(mode, "stdout") == 0) {
-            materialized = output->stdout_text != NULL ? output->stdout_text : "";
-        } else if (strcmp(mode, "stderr") == 0) {
-            materialized = output->stderr_text != NULL ? output->stderr_text : "";
-        } else if (strcmp(mode, "exit_code") == 0) {
-            char exit_text[32];
-
-            snprintf(exit_text, sizeof(exit_text), "%d", output->exit_code);
-            snprintf(key, sizeof(key), "output.%s", output_id);
-            if (kc_flow_overrides_add(values, key, exit_text) != 0) {
-                snprintf(error, error_size, "Unable to store output value.");
-                return -1;
-            }
-            continue;
-        } else {
-            snprintf(error, error_size, "Unsupported bind mode: %s", mode);
-            return -1;
-        }
-        snprintf(key, sizeof(key), "output.%s", output_id);
-        if (kc_flow_overrides_add(values, key, materialized) != 0) {
-            snprintf(error, error_size, "Unable to store output value.");
-            return -1;
-        }
+        free(resolved);
     }
-    return 0;
-}
-
-/**
- * Prints normalized contract outputs.
- * @param model Parsed model.
- * @param output Captured output.
- * @return int 0 on success; non-zero on failure.
- */
-int kc_flow_print_contract_outputs(
-    const kc_flow_model *model,
-    const kc_flow_run_output *output
-) {
-    kc_flow_overrides values;
-    char error[256];
-    size_t i;
-
-    kc_flow_overrides_init(&values);
-    if (kc_flow_collect_contract_outputs(model, output, &values, error, sizeof(error)) != 0) {
-        kc_flow_overrides_free(&values);
-        return -1;
-    }
-    for (i = 0; i < values.count; ++i) {
-        printf("%s=%s\n", values.records[i].key, values.records[i].value);
-    }
-    kc_flow_overrides_free(&values);
     return 0;
 }

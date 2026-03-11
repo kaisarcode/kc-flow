@@ -7,7 +7,8 @@
 
 NAME       = kc-flow
 SRC        = src/main.c src/model.c src/load.c src/validate.c src/runtime.c \
-             src/process.c src/output.c src/graph.c
+             src/process.c src/output.c src/graph.c src/worker.c src/cycle.c \
+             src/state.c src/artifact.c src/artifact_map.c
 SRC_BASE   = $(notdir $(SRC))
 OBJ_NAMES  = $(SRC_BASE:.c=.o)
 BIN_ROOT   = bin

@@ -93,10 +93,12 @@ int kc_flow_collect_node_ids(
  */
 int kc_flow_run_node(
     const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
     const char *flow_dir,
     const char *node_id,
-    const kc_flow_overrides *node_inputs,
-    kc_flow_overrides *node_outputs,
+    const kc_flow_overrides *runtime_params,
+    int fd_in,
+    int *fd_out,
     char *error,
     size_t error_size
 ) {
@@ -104,7 +106,11 @@ int kc_flow_run_node(
     const char *target;
     char path[KC_FLOW_MAX_PATH];
     kc_flow_model child;
+    kc_flow_overrides node_params;
+    int child_fd_out;
 
+    child_fd_out = *fd_out;
+    *fd_out = -1;
     node_record = kc_flow_find_node_record(model, node_id);
     if (node_record < 0) {
         snprintf(error, error_size, "Unknown node: %s", node_id);
@@ -126,37 +132,67 @@ int kc_flow_run_node(
         return -1;
     }
     kc_flow_model_init(&child);
+    kc_flow_overrides_init(&node_params);
     if (kc_flow_load_file(path, &child, error, error_size) != 0 ||
+            kc_flow_collect_node_params(
+                model,
+                node_record,
+                runtime_params,
+                &node_params,
+                error,
+                error_size
+            ) != 0 ||
             kc_flow_validate_model(&child, error, error_size) != 0) {
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return -1;
+    }
+    if (child.outputs.count > 0 && child_fd_out < 0) {
+        child_fd_out = kc_flow_create_artifact_fd(error, error_size);
+    } else if (child.outputs.count == 0) {
+        child_fd_out = -1;
+    }
+    if (child.outputs.count > 0 && child_fd_out < 0) {
+        kc_flow_overrides_free(&node_params);
         kc_flow_model_free(&child);
         return -1;
     }
     fprintf(stderr, "[kc-flow] step node=%s contract=%s\n", node_id, path);
     if (child.kind == KC_FLOW_FILE_FLOW) {
         int rc;
+        kc_flow_runtime_cfg nested_cfg;
 
-        rc = kc_flow_run_flow(&child, node_inputs, path, node_outputs, error, error_size);
+        nested_cfg = *cfg;
+        nested_cfg.fd_in = fd_in;
+        nested_cfg.fd_out = child_fd_out;
+        rc = kc_flow_run_flow(&child, &nested_cfg, &node_params, path, error, error_size);
+        if (rc == 0) {
+            *fd_out = child_fd_out;
+        } else if (child_fd_out >= 0) {
+            kc_flow_release_fd(child_fd_out);
+        }
+        kc_flow_overrides_free(&node_params);
         kc_flow_model_free(&child);
         return rc;
     }
     {
-        kc_flow_run_output output;
         int rc;
 
-        rc = kc_flow_run_contract(&child, node_inputs, path, &output, error, error_size);
-        if (rc == 0 && output.exit_code == 0) {
-            rc = kc_flow_collect_contract_outputs(
-                &child,
-                &output,
-                node_outputs,
-                error,
-                error_size
-            );
-        } else if (rc == 0) {
-            snprintf(error, error_size, "Node contract exited with non-zero status.");
-            rc = -1;
+        rc = kc_flow_run_contract(
+            &child,
+            &node_params,
+            path,
+            fd_in,
+            child_fd_out,
+            error,
+            error_size
+        );
+        if (rc == 0) {
+            *fd_out = child_fd_out;
+        } else if (child_fd_out >= 0) {
+            kc_flow_release_fd(child_fd_out);
         }
-        kc_flow_run_output_free(&output);
+        kc_flow_overrides_free(&node_params);
         kc_flow_model_free(&child);
         return rc;
     }

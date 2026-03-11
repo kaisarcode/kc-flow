@@ -166,9 +166,7 @@ static int kc_flow_finalize_model(
     model->id = kc_flow_model_get(model, "contract.id");
     model->name = kc_flow_model_get(model, "contract.name");
     model->runtime_script = kc_flow_model_get(model, "runtime.script");
-    model->runtime_exec = kc_flow_model_get(model, "runtime.exec");
     model->runtime_workdir = kc_flow_model_get(model, "runtime.workdir");
-    model->runtime_stdin = kc_flow_model_get(model, "runtime.stdin");
     if (model->id != NULL) {
         model->kind = KC_FLOW_FILE_CONTRACT;
     } else {
@@ -185,7 +183,6 @@ static int kc_flow_finalize_model(
     if (kc_flow_collect_section(model, "param.", &model->params) != 0 ||
             kc_flow_collect_section(model, "input.", &model->inputs) != 0 ||
             kc_flow_collect_section(model, "output.", &model->outputs) != 0 ||
-            kc_flow_collect_section(model, "bind.output.", &model->bind_output) != 0 ||
             kc_flow_collect_section(model, "node.", &model->nodes) != 0 ||
             kc_flow_collect_section(model, "link.", &model->links) != 0) {
         snprintf(error, error_size, "Too many indexed records.");
