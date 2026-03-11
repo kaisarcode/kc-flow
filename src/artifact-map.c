@@ -1,5 +1,5 @@
 /**
- * artifact_map.c
+ * artifact-map.c
  * Summary: Runtime endpoint-to-artifact bookkeeping and refcount helpers.
  *
  * Author:  KaisarCode

@@ -1,5 +1,5 @@
 /**
- * status.c
+ * event.c
  * Summary: Structured runtime status emission for external supervisors.
  *
  * Author:  KaisarCode

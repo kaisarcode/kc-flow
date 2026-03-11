@@ -1,5 +1,5 @@
 /**
- * status_line.c
+ * event-line.c
  * Summary: Line encoding for structured runtime status events.
  *
  * Author:  KaisarCode
@@ -8,63 +8,10 @@
  */
 
 #include "flow.h"
+#include "compat.h"
 
 #include <stdio.h>
 #include <string.h>
-#if defined(_WIN32)
-#include <io.h>
-#include <process.h>
-#else
-#include <errno.h>
-#include <unistd.h>
-#endif
-
-/**
- * Writes one full status payload.
- * @param fd Destination descriptor.
- * @param text Source text.
- * @param size Payload size.
- * @return int 0 on success; non-zero on failure.
- */
-static int kc_flow_status_write_all(int fd, const char *text, size_t size) {
-    size_t offset;
-
-    offset = 0;
-    while (offset < size) {
-#if defined(_WIN32)
-        int rc;
-
-        rc = _write(fd, text + offset, (unsigned int)(size - offset));
-        if (rc <= 0) {
-            return -1;
-        }
-#else
-        ssize_t rc;
-
-        rc = write(fd, text + offset, size - offset);
-        if (rc < 0 && errno == EINTR) {
-            continue;
-        }
-        if (rc <= 0) {
-            return -1;
-        }
-#endif
-        offset += (size_t)rc;
-    }
-    return 0;
-}
-
-/**
- * Resolves the current process id.
- * @return long Current process id.
- */
-static long kc_flow_status_pid(void) {
-#if defined(_WIN32)
-    return (long)_getpid();
-#else
-    return (long)getpid();
-#endif
-}
 
 /**
  * Appends one escaped field value.
@@ -186,7 +133,7 @@ static int kc_flow_status_append_pid(
         size - *length,
         "%spid=%ld",
         *first ? "" : " ",
-        kc_flow_status_pid()
+        kc_flow_platform_pid()
     );
     if (rc < 0 || (size_t)rc >= size - *length) {
         return -1;
@@ -247,5 +194,5 @@ int kc_flow_status_emit(
         return -1;
     }
     buffer[length++] = '\n';
-    return kc_flow_status_write_all(fd, buffer, length);
+    return kc_flow_platform_write_all(fd, buffer, length);
 }
