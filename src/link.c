@@ -12,30 +12,22 @@
 #include <stdio.h>
 #include <string.h>
 
-static int kc_flow_has_parent_field_id(const kc_flow_model *model,
-                                       const kc_flow_index_set *set,
-                                       const char *prefix,
-                                       const char *field_id) {
-    size_t i;
-    char key[128];
-
-    for (i = 0; i < set->count; ++i) {
-        const char *value;
-        snprintf(key, sizeof(key), "%s%d.id", prefix, set->values[i]);
-        value = kc_flow_model_get(model, key);
-        if (value != NULL && strcmp(value, field_id) == 0) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int kc_flow_collect_node_ids(const kc_flow_model *model,
-                             char node_ids[][128],
-                             size_t *count,
-                             char *error,
-                             size_t error_size) {
+/**
+ * Collects dense node ids from one flow model.
+ * @param model Source model.
+ * @param node_ids Output dense node id table.
+ * @param count Output node count.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_collect_node_ids(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t *count,
+    char *error,
+    size_t error_size
+) {
     size_t i;
     char key[128];
 
@@ -63,146 +55,33 @@ int kc_flow_collect_node_ids(const kc_flow_model *model,
     return 0;
 }
 
-static int kc_flow_find_node_index(char node_ids[][128],
-                                   size_t count,
-                                   const char *node_id) {
-    size_t i;
-    for (i = 0; i < count; ++i) {
-        if (strcmp(node_ids[i], node_id) == 0) {
-            return (int)i;
-        }
-    }
-    return -1;
-}
-
-static int kc_flow_parse_endpoint(const char *text, kc_flow_endpoint *endpoint) {
-    memset(endpoint, 0, sizeof(*endpoint));
-
-    if (text == NULL || text[0] == 0) {
-        return -1;
-    }
-
-    if (strncmp(text, "input.", 6) == 0) {
-        const char *field = text + 6;
-        if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-            return -1;
-        }
-        endpoint->kind = KC_FLOW_ENDPOINT_INPUT;
-        snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-        return 0;
-    }
-
-    if (strncmp(text, "output.", 7) == 0) {
-        const char *field = text + 7;
-        if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-            return -1;
-        }
-        endpoint->kind = KC_FLOW_ENDPOINT_OUTPUT;
-        snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-        return 0;
-    }
-
-    if (strncmp(text, "node.", 5) == 0) {
-        const char *cursor = text + 5;
-        const char *dot = strchr(cursor, '.');
-        const char *rest;
-
-        if (dot == NULL || dot == cursor) {
-            return -1;
-        }
-
-        if ((size_t)(dot - cursor) >= sizeof(endpoint->node_id)) {
-            return -1;
-        }
-
-        memcpy(endpoint->node_id, cursor, (size_t)(dot - cursor));
-        endpoint->node_id[dot - cursor] = 0;
-
-        rest = dot + 1;
-        if (strncmp(rest, "in.", 3) == 0) {
-            const char *field = rest + 3;
-            if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-                return -1;
-            }
-            endpoint->kind = KC_FLOW_ENDPOINT_NODE_IN;
-            snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-            return 0;
-        }
-
-        if (strncmp(rest, "out.", 4) == 0) {
-            const char *field = rest + 4;
-            if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-                return -1;
-            }
-            endpoint->kind = KC_FLOW_ENDPOINT_NODE_OUT;
-            snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-static int kc_flow_validate_link_semantics(const kc_flow_model *model,
-                                           char node_ids[][128],
-                                           size_t node_count,
-                                           const kc_flow_endpoint *from,
-                                           const kc_flow_endpoint *to,
-                                           char *error,
-                                           size_t error_size) {
-    if (!(from->kind == KC_FLOW_ENDPOINT_INPUT ||
-          from->kind == KC_FLOW_ENDPOINT_NODE_OUT)) {
-        snprintf(error, error_size, "Invalid link source endpoint.");
-        return -1;
-    }
-
-    if (!(to->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-          to->kind == KC_FLOW_ENDPOINT_OUTPUT)) {
-        snprintf(error, error_size, "Invalid link destination endpoint.");
-        return -1;
-    }
-
-    if (from->kind == KC_FLOW_ENDPOINT_INPUT &&
-        !kc_flow_has_parent_field_id(
-            model, &model->inputs, "input.", from->field_id
-        )) {
-        snprintf(error,
-                 error_size,
-                 "Unknown parent input id in link: %s",
-                 from->field_id);
-        return -1;
-    }
-
-    if ((from->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-         from->kind == KC_FLOW_ENDPOINT_NODE_OUT) &&
-        kc_flow_find_node_index(node_ids, node_count, from->node_id) < 0) {
-        snprintf(error,
-                 error_size,
-                 "Unknown node id in link source: %s",
-                 from->node_id);
-        return -1;
-    }
-
-    if ((to->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-         to->kind == KC_FLOW_ENDPOINT_NODE_OUT) &&
-        kc_flow_find_node_index(node_ids, node_count, to->node_id) < 0) {
-        snprintf(error,
-                 error_size,
-                 "Unknown node id in link destination: %s",
-                 to->node_id);
-        return -1;
-    }
-
-    return 0;
-}
-
-int kc_flow_collect_links(const kc_flow_model *model,
-                          char node_ids[][128],
-                          size_t node_count,
-                          kc_flow_link_entry *links,
-                          size_t *link_count,
-                          char *error,
-                          size_t error_size) {
+/**
+ * Resolves one node id to its dense graph index.
+ * @param node_ids Dense node id table.
+ * @param count Number of node ids.
+ * @param node_id Node id to resolve.
+ * @return int Resolved index or -1 if not found.
+ */
+/**
+ * Collects and validates flow links.
+ * @param model Source model.
+ * @param node_ids Dense node id table.
+ * @param node_count Number of nodes.
+ * @param links Output link table.
+ * @param link_count Output link count.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_collect_links(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t node_count,
+    kc_flow_link_entry *links,
+    size_t *link_count,
+    char *error,
+    size_t error_size
+) {
     size_t i;
 
     if (model->links.count > KC_STDIO_MAX_INDEXES) {
@@ -222,28 +101,34 @@ int kc_flow_collect_links(const kc_flow_model *model,
         from_value = kc_flow_model_get(model, from_key);
         to_value = kc_flow_model_get(model, to_key);
 
-        if (kc_flow_parse_endpoint(from_value, &links[i].from) != 0) {
-            snprintf(error,
-                     error_size,
-                     "Invalid link source endpoint: %s",
-                     from_value != NULL ? from_value : "(null)");
+        if (kc_flow_parse_link_endpoint(from_value, &links[i].from) != 0) {
+            snprintf(
+                error,
+                error_size,
+                "Invalid link source endpoint: %s",
+                from_value != NULL ? from_value : "(null)"
+            );
             return -1;
         }
-        if (kc_flow_parse_endpoint(to_value, &links[i].to) != 0) {
-            snprintf(error,
-                     error_size,
-                     "Invalid link destination endpoint: %s",
-                     to_value != NULL ? to_value : "(null)");
+        if (kc_flow_parse_link_endpoint(to_value, &links[i].to) != 0) {
+            snprintf(
+                error,
+                error_size,
+                "Invalid link destination endpoint: %s",
+                to_value != NULL ? to_value : "(null)"
+            );
             return -1;
         }
 
-        if (kc_flow_validate_link_semantics(model,
-                                            node_ids,
-                                            node_count,
-                                            &links[i].from,
-                                            &links[i].to,
-                                            error,
-                                            error_size) != 0) {
+        if (kc_flow_validate_link_endpoint_pair(
+                model,
+                node_ids,
+                node_count,
+                &links[i].from,
+                &links[i].to,
+                error,
+                error_size
+            ) != 0) {
             return -1;
         }
     }

@@ -33,24 +33,45 @@ typedef struct kc_flow_link_entry {
     kc_flow_endpoint to;
 } kc_flow_link_entry;
 
-int kc_flow_collect_node_ids(const kc_flow_model *model,
-                             char node_ids[][128],
-                             size_t *count,
-                             char *error,
-                             size_t error_size);
+int kc_flow_collect_node_ids(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t *count,
+    char *error,
+    size_t error_size
+);
 
-int kc_flow_collect_links(const kc_flow_model *model,
-                          char node_ids[][128],
-                          size_t node_count,
-                          kc_flow_link_entry *links,
-                          size_t *link_count,
-                          char *error,
-                          size_t error_size);
+int kc_flow_collect_links(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t node_count,
+    kc_flow_link_entry *links,
+    size_t *link_count,
+    char *error,
+    size_t error_size
+);
 
-int kc_flow_detect_cycle(const kc_flow_model *model,
-                         char node_ids[][128],
-                         size_t node_count,
-                         char *error,
-                         size_t error_size);
+int kc_flow_parse_link_endpoint(
+    const char *text,
+    kc_flow_endpoint *endpoint
+);
+
+int kc_flow_validate_link_endpoint_pair(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t node_count,
+    const kc_flow_endpoint *from,
+    const kc_flow_endpoint *to,
+    char *error,
+    size_t error_size
+);
+
+int kc_flow_detect_cycle(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t node_count,
+    char *error,
+    size_t error_size
+);
 
 #endif

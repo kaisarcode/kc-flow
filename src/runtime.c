@@ -13,6 +13,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * Duplicates one C string.
+ * @param text Source text.
+ * @return char* Heap copy on success; NULL on error.
+ */
 static char *kc_flow_strdup(const char *text) {
     size_t len;
     char *copy;
@@ -44,24 +49,46 @@ void kc_flow_run_output_free(kc_flow_run_output *output) {
     output->exit_code = 0;
 }
 
-static int kc_flow_find_output_binding(const kc_flow_model *model,
-                                       const char *output_id,
-                                       const char **mode,
-                                       const char **path) {
+/**
+ * Finds one bind.output mapping by logical output id.
+ * @param model Parsed contract model.
+ * @param output_id Logical output id.
+ * @param mode Output binding mode.
+ * @param path Output binding path.
+ * @return int 0 on success; non-zero if not found.
+ */
+static int kc_flow_find_output_binding(
+    const kc_flow_model *model,
+    const char *output_id,
+    const char **mode,
+    const char **path
+) {
     size_t i;
     char key[128];
     const char *current_id;
 
     for (i = 0; i < model->bind_output.count; ++i) {
-        snprintf(key, sizeof(key), "bind.output.%d.id",
-                 model->bind_output.values[i]);
+        snprintf(
+            key,
+            sizeof(key),
+            "bind.output.%d.id",
+            model->bind_output.values[i]
+        );
         current_id = kc_flow_model_get(model, key);
         if (current_id != NULL && strcmp(current_id, output_id) == 0) {
-            snprintf(key, sizeof(key), "bind.output.%d.mode",
-                     model->bind_output.values[i]);
+            snprintf(
+                key,
+                sizeof(key),
+                "bind.output.%d.mode",
+                model->bind_output.values[i]
+            );
             *mode = kc_flow_model_get(model, key);
-            snprintf(key, sizeof(key), "bind.output.%d.path",
-                     model->bind_output.values[i]);
+            snprintf(
+                key,
+                sizeof(key),
+                "bind.output.%d.path",
+                model->bind_output.values[i]
+            );
             *path = kc_flow_model_get(model, key);
             return 0;
         }
@@ -70,12 +97,24 @@ static int kc_flow_find_output_binding(const kc_flow_model *model,
     return -1;
 }
 
-static char *kc_flow_materialize_bound_output(const char *output_id,
-                                              const char *mode,
-                                              const char *path,
-                                              const kc_flow_run_output *output,
-                                              char *error,
-                                              size_t error_size) {
+/**
+ * Materializes one bound output value from captured runtime data.
+ * @param output_id Logical output id.
+ * @param mode Binding mode.
+ * @param path Binding path.
+ * @param output Captured runtime output.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return char* Heap value on success; NULL on error.
+ */
+static char *kc_flow_materialize_bound_output(
+    const char *output_id,
+    const char *mode,
+    const char *path,
+    const kc_flow_run_output *output,
+    char *error,
+    size_t error_size
+) {
     char buffer[64];
 
     if (mode == NULL) {
@@ -117,11 +156,13 @@ static char *kc_flow_materialize_bound_output(const char *output_id,
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on collection failure.
  */
-int kc_flow_collect_contract_outputs(const kc_flow_model *model,
-                                     const kc_flow_run_output *output,
-                                     kc_flow_overrides *values,
-                                     char *error,
-                                     size_t error_size) {
+int kc_flow_collect_contract_outputs(
+    const kc_flow_model *model,
+    const kc_flow_run_output *output,
+    kc_flow_overrides *values,
+    char *error,
+    size_t error_size
+) {
     size_t i;
     char key[128];
 
@@ -141,15 +182,22 @@ int kc_flow_collect_contract_outputs(const kc_flow_model *model,
         mode = NULL;
         path = NULL;
         if (kc_flow_find_output_binding(model, output_id, &mode, &path) != 0) {
-            snprintf(error,
-                     error_size,
-                     "Missing bind.output entry for output id: %s",
-                     output_id);
+            snprintf(
+                error,
+                error_size,
+                "Missing bind.output entry for output id: %s",
+                output_id
+            );
             return -1;
         }
 
         materialized = kc_flow_materialize_bound_output(
-            output_id, mode, path, output, error, error_size
+            output_id,
+            mode,
+            path,
+            output,
+            error,
+            error_size
         );
         if (materialized == NULL) {
             return -1;
@@ -173,18 +221,22 @@ int kc_flow_collect_contract_outputs(const kc_flow_model *model,
  * @param output Captured runtime output.
  * @return int 0 on success; non-zero on collection failure.
  */
-int kc_flow_print_contract_outputs(const kc_flow_model *model,
-                                   const kc_flow_run_output *output) {
+int kc_flow_print_contract_outputs(
+    const kc_flow_model *model,
+    const kc_flow_run_output *output
+) {
     kc_flow_overrides values;
     size_t i;
     char error[256];
 
     kc_flow_overrides_init(&values);
-    if (kc_flow_collect_contract_outputs(model,
-                                         output,
-                                         &values,
-                                         error,
-                                         sizeof(error)) != 0) {
+    if (kc_flow_collect_contract_outputs(
+            model,
+            output,
+            &values,
+            error,
+            sizeof(error)
+        ) != 0) {
         kc_flow_overrides_free(&values);
         return -1;
     }

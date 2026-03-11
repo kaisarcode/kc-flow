@@ -27,12 +27,14 @@
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on runtime failure.
  */
-int kc_flow_run_contract(const kc_flow_model *model,
-                         const kc_flow_overrides *overrides,
-                         const char *cfg_path,
-                         kc_flow_run_output *output,
-                         char *error,
-                         size_t error_size) {
+int kc_flow_run_contract(
+    const kc_flow_model *model,
+    const kc_flow_overrides *overrides,
+    const char *cfg_path,
+    kc_flow_run_output *output,
+    char *error,
+    size_t error_size
+) {
     char cfg_dir[PATH_MAX];
     char workdir[PATH_MAX];
     char stdout_path[] = "/tmp/kc-flow-stdout-XXXXXX";
@@ -54,11 +56,12 @@ int kc_flow_run_contract(const kc_flow_model *model,
     int status;
 
     kc_flow_dirname(cfg_path, cfg_dir, sizeof(cfg_dir));
-    if (kc_flow_build_path(workdir,
-                           sizeof(workdir),
-                           cfg_dir,
-                           model->runtime_workdir != NULL ?
-                           model->runtime_workdir : ".") != 0) {
+    if (kc_flow_build_path(
+            workdir,
+            sizeof(workdir),
+            cfg_dir,
+            model->runtime_workdir != NULL ? model->runtime_workdir : "."
+        ) != 0) {
         snprintf(error, error_size, "Unable to resolve workdir.");
         return -1;
     }
@@ -109,9 +112,11 @@ int kc_flow_run_contract(const kc_flow_model *model,
 
     stdin_path[0] = '\0';
     if (resolved_stdin != NULL) {
-        if (kc_flow_write_temp_file(resolved_stdin,
-                                    stdin_path,
-                                    sizeof(stdin_path)) != 0) {
+        if (kc_flow_write_temp_file(
+                resolved_stdin,
+                stdin_path,
+                sizeof(stdin_path)
+            ) != 0) {
             free(resolved_script);
             free(resolved_exec);
             free(resolved_stdin);
@@ -167,10 +172,16 @@ int kc_flow_run_contract(const kc_flow_model *model,
         return -1;
     }
 
-    command_size = strlen("cd ") + strlen(quoted_workdir) + strlen(" && ") +
-                   strlen(env_buffer) + strlen(resolved_script) +
-                   strlen(" > ") + strlen(quoted_stdout) +
-                   strlen(" 2> ") + strlen(quoted_stderr) + 32;
+    command_size = strlen("cd ") +
+        strlen(quoted_workdir) +
+        strlen(" && ") +
+        strlen(env_buffer) +
+        strlen(resolved_script) +
+        strlen(" > ") +
+        strlen(quoted_stdout) +
+        strlen(" 2> ") +
+        strlen(quoted_stderr) +
+        32;
 
     if (quoted_exec != NULL) {
         command_size += strlen(quoted_exec) + 1;
@@ -200,24 +211,28 @@ int kc_flow_run_contract(const kc_flow_model *model,
         return -1;
     }
 
-    snprintf(command,
-             command_size,
-             "cd %s && %s%s%s%s%s > %s 2> %s",
-             quoted_workdir,
-             env_buffer,
-             quoted_exec != NULL ? quoted_exec : "",
-             quoted_exec != NULL ? " " : "",
-             resolved_script,
-             quoted_stdin != NULL ? "" : "",
-             quoted_stdout,
-             quoted_stderr);
+    snprintf(
+        command,
+        command_size,
+        "cd %s && %s%s%s%s%s > %s 2> %s",
+        quoted_workdir,
+        env_buffer,
+        quoted_exec != NULL ? quoted_exec : "",
+        quoted_exec != NULL ? " " : "",
+        resolved_script,
+        quoted_stdin != NULL ? "" : "",
+        quoted_stdout,
+        quoted_stderr
+    );
 
     if (quoted_stdin != NULL) {
         size_t current_len = strlen(command);
-        snprintf(command + current_len,
-                 command_size - current_len,
-                 " < %s",
-                 quoted_stdin);
+        snprintf(
+            command + current_len,
+            command_size - current_len,
+            " < %s",
+            quoted_stdin
+        );
     }
 
     status = system(command);

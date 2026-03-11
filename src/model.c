@@ -13,6 +13,11 @@
 #include <string.h>
 #include <sys/stat.h>
 
+/**
+ * Duplicates one C string.
+ * @param text Source text.
+ * @return char* Heap copy on success; NULL on error.
+ */
 static char *kc_flow_strdup(const char *text) {
     size_t len;
     char *copy;
@@ -97,8 +102,10 @@ void kc_flow_overrides_free(kc_flow_overrides *overrides) {
  * @param key Lookup key.
  * @return const char* Value if found; NULL otherwise.
  */
-const char *kc_flow_overrides_get(const kc_flow_overrides *overrides,
-                                  const char *key) {
+const char *kc_flow_overrides_get(
+    const kc_flow_overrides *overrides,
+    const char *key
+) {
     size_t i;
 
     for (i = 0; i < overrides->count; ++i) {
@@ -117,9 +124,11 @@ const char *kc_flow_overrides_get(const kc_flow_overrides *overrides,
  * @param value Override value.
  * @return int 0 on success; non-zero on memory/capacity errors.
  */
-int kc_flow_overrides_add(kc_flow_overrides *overrides,
-                          const char *key,
-                          const char *value) {
+int kc_flow_overrides_add(
+    kc_flow_overrides *overrides,
+    const char *key,
+    const char *value
+) {
     const char *current;
 
     current = kc_flow_overrides_get(overrides, key);
@@ -163,7 +172,10 @@ int kc_flow_overrides_add(kc_flow_overrides *overrides,
  * @param key Lookup key.
  * @return const char* Value if found; NULL otherwise.
  */
-const char *kc_flow_model_get(const kc_flow_model *model, const char *key) {
+const char *kc_flow_model_get(
+    const kc_flow_model *model,
+    const char *key
+) {
     size_t i;
 
     for (i = 0; i < model->record_count; ++i) {

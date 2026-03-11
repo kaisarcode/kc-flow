@@ -19,6 +19,11 @@
 #endif
 #include <unistd.h>
 
+/**
+ * Normalizes one process status to an exit code.
+ * @param status Raw process status.
+ * @return int Process exit code.
+ */
 int kc_flow_system_exit_code(int status) {
 #if defined(_WIN32)
     return status;
@@ -27,6 +32,11 @@ int kc_flow_system_exit_code(int status) {
 #endif
 }
 
+/**
+ * Duplicates one string.
+ * @param text Source text.
+ * @return char* Newly allocated copy or NULL on failure.
+ */
 static char *kc_flow_strdup(const char *text) {
     size_t len;
     char *copy;
@@ -45,6 +55,11 @@ static char *kc_flow_strdup(const char *text) {
     return copy;
 }
 
+/**
+ * Quotes one string for shell-safe single-quoted use.
+ * @param text Source text.
+ * @return char* Newly allocated quoted string or NULL on failure.
+ */
 char *kc_flow_shell_quote(const char *text) {
     size_t i;
     size_t extra;
@@ -81,6 +96,11 @@ char *kc_flow_shell_quote(const char *text) {
     return quoted;
 }
 
+/**
+ * Reads one whole file into memory as text.
+ * @param path Source file path.
+ * @return char* Newly allocated text buffer or NULL on failure.
+ */
 char *kc_flow_read_file_text(const char *path) {
     FILE *fp;
     long size;
@@ -120,9 +140,18 @@ char *kc_flow_read_file_text(const char *path) {
     return buffer;
 }
 
-int kc_flow_write_temp_file(const char *content,
-                            char *path_buffer,
-                            size_t path_size) {
+/**
+ * Writes one content buffer into a temporary file.
+ * @param content Source content.
+ * @param path_buffer Output path buffer.
+ * @param path_size Output path buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_write_temp_file(
+    const char *content,
+    char *path_buffer,
+    size_t path_size
+) {
     int fd;
     FILE *fp;
     char template_path[] = "/tmp/kc-flow-stdin-XXXXXX";

@@ -7,18 +7,26 @@
 # License: GNU GPL v3.0
 set -e
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 APP_ROOT="$SCRIPT_DIR"
 
+# @brief Prints one test failure and exits.
+# @param $1 Failure message.
+# @return Does not return.
 fail() {
     printf "\033[31m[FAIL]\033[0m %s\n" "$1"
     exit 1
 }
 
+# @brief Prints one passing test message.
+# @param $1 Success message.
+# @return 0 on success.
 pass() {
     printf "\033[32m[PASS]\033[0m %s\n" "$1"
 }
 
+# @brief Prepares the test runtime environment.
+# @return 0 on success.
 test_setup() {
     ARCH=$(uname -m)
     [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "aarch64" ] || ARCH="arm64-v8a"
@@ -36,6 +44,8 @@ test_setup() {
     pass "Environment verified: using $KC_BIN_EXEC"
 }
 
+# @brief Runs KCS validation across the repository.
+# @return 0 on success.
 test_kcs() {
     if command -v kcs >/dev/null 2>&1; then
         find "$APP_ROOT" -type f -not -path '*/.*' -not -path '*/bin/*' \
@@ -44,6 +54,8 @@ test_kcs() {
     fi
 }
 
+# @brief Runs general CLI behavior checks.
+# @return 0 on success.
 test_general() {
     if ! "$KC_BIN_EXEC" --help | grep -q "Options:"; then
         fail "General: Help flag failed."
@@ -56,6 +68,8 @@ test_general() {
     pass "General: Unknown flag fail-fast verified."
 }
 
+# @brief Runs functional flow and contract behavior tests.
+# @return 0 on success.
 test_functional() {
     EXAMPLE_FILE="$APP_ROOT/etc/example.flow"
 
@@ -167,28 +181,12 @@ EOF
     printf '%s' "$OUTPUT" | grep -q "output.result=hello" || fail "Functional: nested flow output propagation failed."
     pass "Functional: Nested flow execution and chaining verified."
 
-    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE" --cli)
-    printf '%s' "$CLI_OUTPUT" | grep -q "#!/usr/bin/env bash" || fail "Functional: --cli contract shebang missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "Contract: kc.example.echo" || fail "Functional: --cli contract header missing."
-    pass "Functional: CLI render for contract verified."
-
-    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --cli)
-    printf '%s' "$CLI_OUTPUT" | grep -q "declare -A V" || fail "Functional: --cli flow variable map missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "step_child.out\" &" || fail "Functional: --cli flow node command missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "^wait$" || fail "Functional: --cli flow wait barrier missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "output.result=" || fail "Functional: --cli flow output mapping missing."
-    pass "Functional: CLI render for flow verified."
-
-    CLI_OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --cli powershell)
-    printf '%s' "$CLI_OUTPUT" | grep -q "Set-StrictMode -Version Latest" || fail "Functional: powershell header missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "\$V = @{}" || fail "Functional: powershell variable map missing."
-    printf '%s' "$CLI_OUTPUT" | grep -q "Write-Error \"\[kc-flow\] step node=child" || fail "Functional: powershell node step missing."
-    pass "Functional: CLI render for powershell flow verified."
-
     rm -rf "$FLOW_TMP_DIR"
     trap - RETURN
 }
 
+# @brief Runs the full test suite.
+# @return 0 on success.
 run_tests() {
     test_setup
     test_kcs

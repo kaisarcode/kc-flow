@@ -12,9 +12,18 @@
 #include <stdio.h>
 #include <string.h>
 
-static int kc_flow_validate_contract(const kc_flow_model *model,
-                                     char *error,
-                                     size_t error_size) {
+/**
+ * Validates one contract model.
+ * @param model Parsed model.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on validation failure.
+ */
+static int kc_flow_validate_contract(
+    const kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
     if (model->id == NULL) {
         snprintf(error, error_size, "Missing required key: contract.id");
         return -1;
@@ -33,9 +42,18 @@ static int kc_flow_validate_contract(const kc_flow_model *model,
     return 0;
 }
 
-static int kc_flow_validate_flow(const kc_flow_model *model,
-                                 char *error,
-                                 size_t error_size) {
+/**
+ * Validates one flow model.
+ * @param model Parsed model.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on validation failure.
+ */
+static int kc_flow_validate_flow(
+    const kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
     size_t i;
     char key[128];
 
@@ -87,9 +105,11 @@ static int kc_flow_validate_flow(const kc_flow_model *model,
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on validation errors.
  */
-int kc_flow_validate_model(const kc_flow_model *model,
-                           char *error,
-                           size_t error_size) {
+int kc_flow_validate_model(
+    const kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
     if (model->kind == KC_STDIO_FILE_CONTRACT) {
         return kc_flow_validate_contract(model, error, error_size);
     }
@@ -110,10 +130,12 @@ int kc_flow_validate_model(const kc_flow_model *model,
  * @param value Relative or absolute path.
  * @return int 0 on success; non-zero on invalid/truncated paths.
  */
-int kc_flow_build_path(char *buffer,
-                       size_t size,
-                       const char *base,
-                       const char *value) {
+int kc_flow_build_path(
+    char *buffer,
+    size_t size,
+    const char *base,
+    const char *value
+) {
     size_t base_len;
 
     if (value == NULL || *value == '\0') {
@@ -172,11 +194,13 @@ void kc_flow_dirname(const char *path, char *buffer, size_t size) {
  * @param field Field name to resolve.
  * @return const char* Value if found; NULL otherwise.
  */
-const char *kc_flow_lookup_indexed_id_value(const kc_flow_model *model,
-                                            const kc_flow_index_set *set,
-                                            const char *prefix,
-                                            const char *id,
-                                            const char *field) {
+const char *kc_flow_lookup_indexed_id_value(
+    const kc_flow_model *model,
+    const kc_flow_index_set *set,
+    const char *prefix,
+    const char *id,
+    const char *field
+) {
     size_t i;
     char key[128];
     const char *current_id;

@@ -36,23 +36,15 @@ Invocation contexts:
 
 ### Contract/Flow Model
 
-- Atomic contract:
-  - `contract.id`, `contract.name`
-  - `input.*`, `param.*`, `output.*`
-  - `runtime.script` (and optional runtime metadata)
-- Composed flow:
-  - `flow.id`, `flow.name`
-  - `node.N.id`, `node.N.contract`
-  - `link.N.from`, `link.N.to`
+- Atomic contract uses `contract.id`, `contract.name`,
+    `input.*`, `param.*`, `output.*`, and `runtime.script`.
+- Composed flow uses `flow.id`, `flow.name`, `node.N.id`,
+    `node.N.contract`, `link.N.from`, and `link.N.to`.
 
 ### Endpoint Semantics
 
-- Source endpoints:
-  - `input.<id>`
-  - `node.<node_id>.out.<id>`
-- Destination endpoints:
-  - `node.<node_id>.in.<id>`
-  - `output.<id>`
+- Source endpoints are `input.<id>` and `node.<node_id>.out.<id>`.
+- Destination endpoints are `node.<node_id>.in.<id>` and `output.<id>`.
 
 ### Scheduling Semantics
 
@@ -84,32 +76,13 @@ kc-flow --run /path/to/file.flow
 kc-flow --run /path/to/file.flow --set input.user_text=hello --set param.width=1024
 ```
 
-### Render execution chain (stdout)
-```bash
-# default shell: bash
-kc-flow --run /path/to/file.flow --cli
-
-# explicit shell
-kc-flow --run /path/to/file.flow --cli bash
-kc-flow --run /path/to/file.flow --cli powershell
-```
-
 ### Full Parameter Reference
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--run` | Path to the flow file to execute | Required |
 | `--set` | Input or param override (format: `key=value`) | `NULL` |
-| `--cli` | Renders execution chain to stdout instead of running (`bash` or `powershell`) | `bash` |
 | `--help` | Shows help | `NULL` |
-
-## CLI Rendering
-
-`--cli` exports reproducible chain execution.
-
-- Backends: `bash` and `powershell`.
-- Default backend: `bash`.
-- Renderer output should preserve deterministic wiring semantics.
 
 ## Implementation Notes
 
@@ -143,19 +116,19 @@ wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-flow/master/install.sh
 ## Compilation
 Build for specific architectures:
 ```bash
-# Linux x86_64
+Linux x86_64:
 make ARCH=x86_64
 
-# Windows x86_64
+Windows x86_64:
 make ARCH=win64
 
-# Linux ARM64
+Linux ARM64:
 make ARCH=aarch64
 
-# Android ARM64
+Android ARM64:
 make ARCH=arm64-v8a
 
-# Build All
+Build all:
 make all
 ```
 
@@ -164,6 +137,8 @@ make all
 **Author:** KaisarCode
 
 **Website:** [https://kaisarcode.com](https://kaisarcode.com)
+
+**Email:** <kaisar@kaisarcode.com>
 
 **License:** [GNU GPL v3.0](https://www.gnu.org/licenses/gpl-3.0.html)
 

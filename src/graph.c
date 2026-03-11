@@ -27,12 +27,14 @@
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on execution/validation failure.
  */
-int kc_flow_run_flow(const kc_flow_model *model,
-                     const kc_flow_overrides *overrides,
-                     const char *path,
-                     kc_flow_overrides *outputs,
-                     char *error,
-                     size_t error_size) {
+int kc_flow_run_flow(
+    const kc_flow_model *model,
+    const kc_flow_overrides *overrides,
+    const char *path,
+    kc_flow_overrides *outputs,
+    char *error,
+    size_t error_size
+) {
     kc_flow_link_entry links[KC_STDIO_MAX_INDEXES];
     char node_ids[KC_STDIO_MAX_INDEXES][128];
     unsigned char executed[KC_STDIO_MAX_INDEXES];
@@ -51,23 +53,37 @@ int kc_flow_run_flow(const kc_flow_model *model,
 
     kc_flow_dirname(path, flow_dir, sizeof(flow_dir));
 
-    if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0) {
+    if (kc_flow_collect_node_ids(
+            model,
+            node_ids,
+            &node_count,
+            error,
+            error_size
+        ) != 0) {
         kc_flow_overrides_free(&values);
         return -1;
     }
 
-    if (kc_flow_detect_cycle(model, node_ids, node_count, error, error_size) != 0) {
+    if (kc_flow_detect_cycle(
+            model,
+            node_ids,
+            node_count,
+            error,
+            error_size
+        ) != 0) {
         kc_flow_overrides_free(&values);
         return -1;
     }
 
-    if (kc_flow_collect_links(model,
-                              node_ids,
-                              node_count,
-                              links,
-                              &link_count,
-                              error,
-                              error_size) != 0) {
+    if (kc_flow_collect_links(
+            model,
+            node_ids,
+            node_count,
+            links,
+            &link_count,
+            error,
+            error_size
+        ) != 0) {
         kc_flow_overrides_free(&values);
         return -1;
     }
@@ -104,16 +120,20 @@ int kc_flow_run_flow(const kc_flow_model *model,
                 }
 
                 if (links[j].from.kind == KC_FLOW_ENDPOINT_INPUT) {
-                    snprintf(source_key,
-                             sizeof(source_key),
-                             "input.%s",
-                             links[j].from.field_id);
+                    snprintf(
+                        source_key,
+                        sizeof(source_key),
+                        "input.%s",
+                        links[j].from.field_id
+                    );
                 } else {
-                    snprintf(source_key,
-                             sizeof(source_key),
-                             "node.%s.out.%s",
-                             links[j].from.node_id,
-                             links[j].from.field_id);
+                    snprintf(
+                        source_key,
+                        sizeof(source_key),
+                        "node.%s.out.%s",
+                        links[j].from.node_id,
+                        links[j].from.field_id
+                    );
                 }
 
                 source_value = kc_flow_overrides_get(&values, source_key);
@@ -122,10 +142,12 @@ int kc_flow_run_flow(const kc_flow_model *model,
                     break;
                 }
 
-                snprintf(target_key,
-                         sizeof(target_key),
-                         "input.%s",
-                         links[j].to.field_id);
+                snprintf(
+                    target_key,
+                    sizeof(target_key),
+                    "input.%s",
+                    links[j].to.field_id
+                );
                 if (kc_flow_overrides_add(&node_inputs, target_key, source_value) != 0) {
                     kc_flow_overrides_free(&node_inputs);
                     kc_flow_overrides_free(&node_outputs);
@@ -141,26 +163,30 @@ int kc_flow_run_flow(const kc_flow_model *model,
                 continue;
             }
 
-            if (kc_flow_run_node(model,
-                                 flow_dir,
-                                 node_ids[i],
-                                 &node_inputs,
-                                 &node_outputs,
-                                 error,
-                                 error_size) != 0) {
+            if (kc_flow_run_node(
+                    model,
+                    flow_dir,
+                    node_ids[i],
+                    &node_inputs,
+                    &node_outputs,
+                    error,
+                    error_size
+                ) != 0) {
                 kc_flow_overrides_free(&node_inputs);
                 kc_flow_overrides_free(&node_outputs);
                 kc_flow_overrides_free(&values);
                 return -1;
             }
 
-            if (kc_flow_collect_node_outputs(links,
-                                             link_count,
-                                             node_ids[i],
-                                             &node_outputs,
-                                             &values,
-                                             error,
-                                             error_size) != 0) {
+            if (kc_flow_collect_node_outputs(
+                    links,
+                    link_count,
+                    node_ids[i],
+                    &node_outputs,
+                    &values,
+                    error,
+                    error_size
+                ) != 0) {
                 kc_flow_overrides_free(&node_inputs);
                 kc_flow_overrides_free(&node_outputs);
                 kc_flow_overrides_free(&values);

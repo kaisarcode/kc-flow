@@ -12,51 +12,55 @@
 
 #include "graph.h"
 #include "model.h"
-#include "build.h"
 #include "runtime.h"
 
+/**
+ * Prints command usage.
+ * @param bin Executable name.
+ */
 static void kc_flow_help(const char *bin) {
     printf("Options:\n");
     printf("  --run <file>      Execute one flow file\n");
-    printf("  --run <file> --cli [bash|powershell]  Render flow as shell script\n");
     printf("  --help            Show help\n");
     printf("\n");
     printf("Examples:\n");
     printf("  %s --run /path/to/file.flow\n", bin);
     printf("  %s --run /path/to/file.flow --set input.user_text=hello\n", bin);
-    printf("  %s --run /path/to/file.flow --cli\n", bin);
-    printf("  %s --run /path/to/file.flow --cli powershell\n", bin);
 }
 
+/**
+ * Prints one usage failure and exits with code 1.
+ * @param bin Executable name.
+ * @param message Error message.
+ * @return int Always 1.
+ */
 static int kc_flow_fail(const char *bin, const char *message) {
     fprintf(stderr, "Error: %s\n", message);
     kc_flow_help(bin);
     return 1;
 }
 
+/**
+ * Parses one run override tail.
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @param start_index First override argument index.
+ * @param overrides Output override table.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on parse failure.
+ */
 static int kc_flow_parse_run_overrides(
     int argc,
     char **argv,
     int start_index,
     kc_flow_overrides *overrides,
-    int *cli_mode,
-    const char **cli_shell,
     char *error,
     size_t error_size
 ) {
     int i;
-    *cli_mode = 0;
-    *cli_shell = "bash";
 
     for (i = start_index; i < argc; ++i) {
-        if (strcmp(argv[i], "--cli") == 0) {
-            *cli_mode = 1;
-            if (i + 1 < argc && strncmp(argv[i + 1], "--", 2) != 0) {
-                *cli_shell = argv[++i];
-            }
-            continue;
-        }
-
         const char *assignment;
         const char *equals;
         char key[256];
@@ -97,6 +101,12 @@ static int kc_flow_parse_run_overrides(
     return 0;
 }
 
+/**
+ * Loads, validates, and executes one file.
+ * @param path Source file path.
+ * @param overrides Input override table.
+ * @return int 0 on success; non-zero on runtime failure.
+ */
 static int kc_flow_run(const char *path, const kc_flow_overrides *overrides) {
     kc_flow_model model;
     kc_flow_run_output output;
@@ -163,27 +173,15 @@ static int kc_flow_run(const char *path, const kc_flow_overrides *overrides) {
     return output.exit_code == 0 ? 0 : 1;
 }
 
-static int kc_flow_cli(const char *shell, const char *path) {
-    char error[256];
-
-    if (!kc_flow_file_exists(path)) {
-        fprintf(stderr, "Error: contract or flow file not found: %s\n", path);
-        return 1;
-    }
-
-    if (kc_flow_build_cli(path, shell, error, sizeof(error)) != 0) {
-        fprintf(stderr, "Error: %s\n", error);
-        return 1;
-    }
-
-    return 0;
-}
-
+/**
+ * Program entry point.
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return int 0 on success; non-zero on failure.
+ */
 int main(int argc, char **argv) {
     kc_flow_overrides overrides;
     char run_error[256];
-    int cli_mode = 0;
-    const char *cli_shell = "bash";
 
     kc_flow_overrides_init(&overrides);
 
@@ -205,16 +203,10 @@ int main(int argc, char **argv) {
                                         argv,
                                         3,
                                         &overrides,
-                                        &cli_mode,
-                                        &cli_shell,
                                         run_error,
                                         sizeof(run_error)) != 0) {
             kc_flow_overrides_free(&overrides);
             return kc_flow_fail(argv[0], run_error);
-        }
-        if (cli_mode) {
-            kc_flow_overrides_free(&overrides);
-            return kc_flow_cli(cli_shell, argv[2]);
         }
         {
             int rc = kc_flow_run(argv[2], &overrides);
