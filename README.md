@@ -36,6 +36,8 @@ Invocation contexts:
 - One node executes one command or script.
 - One node receives raw input through one runtime descriptor.
 - One node receives its declared parameters as environment for that execution.
+- One node decides internally how to map that input and those parameters to
+    the command it runs.
 - Composed flows schedule ready nodes by resolved dependencies.
 - Nested execution is the normal model (`flow -> node -> contract/flow`).
 - Root execution uses `--fd-in` and `--fd-out` for the public flow interface.
@@ -82,7 +84,7 @@ kc-flow --help
 kc-flow --run /path/to/file.flow
 ```
 
-### Run with parameter overrides
+### Run with overrides
 ```bash
 kc-flow --run /path/to/file.flow --set param.width=1024
 ```
@@ -97,12 +99,15 @@ kc-flow --run /path/to/file.flow --workers 2
 kc-flow --run /path/to/file.flow --fd-in 3 --fd-out 4
 ```
 
+Use explicit descriptors when the flow is embedded inside another runtime or
+parent process.
+
 ### Full Parameter Reference
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--run` | Path to the flow file to execute | Required |
-| `--set` | Parameter override (format: `key=value`) | `NULL` |
+| `--set` | Runtime override (format: `key=value`) | `NULL` |
 | `--workers` | Runtime worker process limit | CPU cores |
 | `--fd-in` | Runtime input descriptor | `0` |
 | `--fd-out` | Runtime output descriptor | `1` |
@@ -116,7 +121,7 @@ Execution model:
 2. Resolve indexed sections for params, inputs, outputs, nodes, and links.
 3. Validate graph references before execution.
 4. Execute ready nodes with raw input plus declared node parameters.
-5. Publish node outputs as runtime transport artifacts.
+5. Connect node outputs to downstream inputs through descriptor transport.
 6. Recurse into nested flows as closed execution units.
 
 ## Testing
