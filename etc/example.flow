@@ -8,12 +8,9 @@ param.1.required=0
 param.1.default=hello
 param.1.label=Prefix
 
-output.1.id=result
-output.1.type=text
-output.1.label=Result
+output.1.id=raw
+output.1.type=stream
+output.1.label=Raw Output
 
-runtime.script=printf "%s\n" "<param.prefix>"
+runtime.script=printf "%s" "<param.prefix>"
 runtime.workdir=.
-
-bind.output.1.id=result
-bind.output.1.mode=stdout

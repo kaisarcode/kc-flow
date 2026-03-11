@@ -6,10 +6,10 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 NAME       = kc-flow
-SRC        = src/main.c src/model.c src/load.c src/validate.c \
-             src/runtime.c src/shell.c src/template.c src/contract.c \
-             src/link.c src/cycle.c src/flow.c src/chain.c src/graph.c \
-             src/build.c src/win.c
+SRC        = src/main.c src/model.c src/load.c src/validate.c src/runtime.c \
+             src/process.c src/output.c src/graph.c src/worker.c src/cycle.c \
+             src/route.c src/artifact.c src/artifact-map.c src/event.c \
+             src/event-line.c src/compat-fd.c src/compat-process.c
 SRC_BASE   = $(notdir $(SRC))
 OBJ_NAMES  = $(SRC_BASE:.c=.o)
 BIN_ROOT   = bin

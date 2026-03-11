@@ -1,6 +1,6 @@
 /**
  * load.c
- * Summary: File parsing and indexed section collection.
+ * Summary: Key-value flow loading and section indexing.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -9,33 +9,21 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "model.h"
+#include "flow.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 
-static char *kc_flow_trim(char *text) {
-    char *end;
-    while (*text != '\0' && isspace((unsigned char)*text)) {
-        text++;
-    }
-    if (*text == '\0') {
-        return text;
-    }
-    end = text + strlen(text) - 1;
-    while (end > text && isspace((unsigned char)*end)) {
-        *end = '\0';
-        end--;
-    }
-    return text;
-}
-
+/**
+ * Duplicates one string.
+ * @param text Source text.
+ * @return char* Heap copy on success; NULL on failure.
+ */
 static char *kc_flow_strdup(const char *text) {
     size_t len;
     char *copy;
+
     if (text == NULL) {
         return NULL;
     }
@@ -44,257 +32,231 @@ static char *kc_flow_strdup(const char *text) {
     if (copy == NULL) {
         return NULL;
     }
-
     memcpy(copy, text, len + 1);
     return copy;
 }
 
-static int kc_flow_index_set_add(kc_flow_index_set *set, int value) {
-    size_t i;
+/**
+ * Trims one line in place.
+ * @param text Input text.
+ * @return char* Trimmed text pointer.
+ */
+static char *kc_flow_trim(char *text) {
+    char *end;
 
-    for (i = 0; i < set->count; ++i) {
-        if (set->values[i] == value) {
-            return 0;
-        }
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') {
+        text++;
     }
-
-    if (set->count >= KC_STDIO_MAX_INDEXES) {
-        return -1;
+    end = text + strlen(text);
+    while (end > text &&
+            (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) {
+        end--;
     }
-
-    set->values[set->count++] = value;
-    return 0;
-}
-
-static int kc_flow_collect_prefix_index(const char *key,
-                                        const char *prefix,
-                                        kc_flow_index_set *set) {
-    const char *cursor;
-    char *endptr;
-    long value;
-
-    if (strncmp(key, prefix, strlen(prefix)) != 0) {
-        return 0;
-    }
-
-    cursor = key + strlen(prefix);
-    if (!isdigit((unsigned char)*cursor)) {
-        return 0;
-    }
-
-    value = strtol(cursor, &endptr, 10);
-    if (endptr == cursor || *endptr != '.') {
-        return 0;
-    }
-
-    if (value <= 0 || value > 2147483647L) {
-        return -1;
-    }
-
-    return kc_flow_index_set_add(set, (int)value);
-}
-
-static int kc_flow_model_collect(kc_flow_model *model) {
-    size_t i;
-    int rc;
-
-    model->id = kc_flow_model_get(model, "contract.id");
-    model->name = kc_flow_model_get(model, "contract.name");
-    model->runtime_script = kc_flow_model_get(model, "runtime.script");
-    model->runtime_exec = kc_flow_model_get(model, "runtime.exec");
-    model->runtime_workdir = kc_flow_model_get(model, "runtime.workdir");
-    model->runtime_stdin = kc_flow_model_get(model, "runtime.stdin");
-
-    if (model->id != NULL || model->name != NULL) {
-        model->kind = KC_STDIO_FILE_CONTRACT;
-    }
-
-    if (kc_flow_model_get(model, "flow.id") != NULL ||
-        kc_flow_model_get(model, "flow.name") != NULL) {
-        model->kind = KC_STDIO_FILE_FLOW;
-        model->id = kc_flow_model_get(model, "flow.id");
-        model->name = kc_flow_model_get(model, "flow.name");
-    }
-
-    for (i = 0; i < model->record_count; ++i) {
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "param.", &model->params
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "input.", &model->inputs
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "output.", &model->outputs
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "runtime.env.", &model->runtime_env
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "bind.output.", &model->bind_output
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "node.", &model->nodes
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "node.param.", &model->node_params
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "link.", &model->links
-        );
-        if (rc != 0) return -1;
-
-        rc = kc_flow_collect_prefix_index(
-            model->records[i].key, "expose.", &model->expose
-        );
-        if (rc != 0) return -1;
-    }
-
-    return 0;
-}
-
-static ssize_t kc_flow_getline_portable(char **lineptr,
-                                        size_t *n,
-                                        FILE *stream) {
-#if defined(_WIN32)
-    size_t pos = 0;
-    int ch;
-    char *buffer;
-
-    if (lineptr == NULL || n == NULL || stream == NULL) {
-        return -1;
-    }
-
-    buffer = *lineptr;
-    if (buffer == NULL || *n == 0) {
-        *n = 256;
-        buffer = malloc(*n);
-        if (buffer == NULL) return -1;
-        *lineptr = buffer;
-    }
-
-    while ((ch = fgetc(stream)) != EOF) {
-        if (pos + 1 >= *n) {
-            size_t next = (*n < 1024) ? 1024 : (*n * 2);
-            char *grown = realloc(buffer, next);
-            if (grown == NULL) return -1;
-            buffer = grown;
-            *lineptr = buffer;
-            *n = next;
-        }
-        buffer[pos++] = (char)ch;
-        if (ch == '\n') break;
-    }
-
-    if (pos == 0 && ch == EOF) return -1;
-    buffer[pos] = '\0';
-    return (ssize_t)pos;
-#else
-    return getline(lineptr, n, stream);
-#endif
+    *end = '\0';
+    return text;
 }
 
 /**
- * Loads and parses one contract/flow file.
+ * Reads one logical line from one file.
+ * @param fp Source file.
+ * @param line Output buffer pointer.
+ * @param capacity Output buffer capacity.
+ * @return int 1 when one line was read; otherwise 0.
+ */
+static int kc_flow_read_line(FILE *fp, char **line, size_t *capacity) {
+    size_t length;
+    int ch;
+
+    if (*line == NULL || *capacity == 0) {
+        *capacity = 256;
+        *line = malloc(*capacity);
+        if (*line == NULL) {
+            return 0;
+        }
+    }
+    length = 0;
+    while ((ch = fgetc(fp)) != EOF) {
+        if (length + 2 > *capacity) {
+            char *grown;
+
+            *capacity *= 2;
+            grown = realloc(*line, *capacity);
+            if (grown == NULL) {
+                free(*line);
+                *line = NULL;
+                *capacity = 0;
+                return 0;
+            }
+            *line = grown;
+        }
+        (*line)[length++] = (char)ch;
+        if (ch == '\n') {
+            break;
+        }
+    }
+    if (length == 0 && ch == EOF) {
+        return 0;
+    }
+    (*line)[length] = '\0';
+    return 1;
+}
+
+/**
+ * Collects one indexed section into an index set.
+ * @param model Parsed model.
+ * @param prefix Section prefix.
+ * @param out Output set.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_collect_section(
+    const kc_flow_model *model,
+    const char *prefix,
+    kc_flow_index_set *out
+) {
+    size_t i;
+    size_t prefix_len;
+
+    memset(out, 0, sizeof(*out));
+    prefix_len = strlen(prefix);
+    for (i = 0; i < model->record_count; ++i) {
+        int index;
+        const char *cursor;
+        char *endptr;
+        size_t j;
+
+        if (strncmp(model->records[i].key, prefix, prefix_len) != 0) {
+            continue;
+        }
+        cursor = model->records[i].key + prefix_len;
+        if (*cursor < '0' || *cursor > '9') {
+            continue;
+        }
+        index = (int)strtol(cursor, &endptr, 10);
+        if (endptr == cursor || *endptr != '.') {
+            continue;
+        }
+        for (j = 0; j < out->count; ++j) {
+            if (out->values[j] == index) {
+                break;
+            }
+        }
+        if (j < out->count) {
+            continue;
+        }
+        if (out->count >= KC_FLOW_MAX_INDEXES) {
+            return -1;
+        }
+        out->values[out->count++] = index;
+    }
+    return 0;
+}
+
+/**
+ * Resolves model kind and known sections.
+ * @param model Output model.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_finalize_model(
+    kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
+    model->id = kc_flow_model_get(model, "contract.id");
+    model->name = kc_flow_model_get(model, "contract.name");
+    model->runtime_script = kc_flow_model_get(model, "runtime.script");
+    model->runtime_workdir = kc_flow_model_get(model, "runtime.workdir");
+    if (model->id != NULL) {
+        model->kind = KC_FLOW_FILE_CONTRACT;
+    } else {
+        model->id = kc_flow_model_get(model, "flow.id");
+        model->name = kc_flow_model_get(model, "flow.name");
+        if (model->id != NULL) {
+            model->kind = KC_FLOW_FILE_FLOW;
+        }
+    }
+    if (model->kind == KC_FLOW_FILE_NONE) {
+        snprintf(error, error_size, "Unable to determine file kind.");
+        return -1;
+    }
+    if (kc_flow_collect_section(model, "param.", &model->params) != 0 ||
+            kc_flow_collect_section(model, "input.", &model->inputs) != 0 ||
+            kc_flow_collect_section(model, "output.", &model->outputs) != 0 ||
+            kc_flow_collect_section(model, "node.", &model->nodes) != 0 ||
+            kc_flow_collect_section(model, "link.", &model->links) != 0) {
+        snprintf(error, error_size, "Too many indexed records.");
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * Loads one flow or contract file.
  * @param path Source file path.
  * @param model Output model.
  * @param error Error buffer.
  * @param error_size Error buffer size.
- * @return int 0 on success; non-zero on parse/load errors.
+ * @return int 0 on success; non-zero on failure.
  */
-int kc_flow_load_file(const char *path,
-                      kc_flow_model *model,
-                      char *error,
-                      size_t error_size) {
+int kc_flow_load_file(
+    const char *path,
+    kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
     FILE *fp;
     char *line;
-    size_t line_capacity;
-    ssize_t line_length;
-    size_t line_number;
+    size_t capacity;
 
+    kc_flow_model_init(model);
     fp = fopen(path, "r");
     if (fp == NULL) {
         snprintf(error, error_size, "Unable to open file: %s", path);
         return -1;
     }
-
     line = NULL;
-    line_capacity = 0;
-    line_number = 0;
-
-    while ((line_length = kc_flow_getline_portable(&line, &line_capacity, fp)) != -1) {
-        char *cursor;
-        char *equals;
+    capacity = 0;
+    while (kc_flow_read_line(fp, &line, &capacity)) {
         char *key;
         char *value;
+        char *equals;
 
-        line_number++;
-        (void)line_length;
-
-        cursor = kc_flow_trim(line);
-        if (*cursor == '\0' || *cursor == '#') {
+        key = kc_flow_trim(line);
+        if (key[0] == '\0' || key[0] == '#') {
             continue;
         }
-
-        equals = strchr(cursor, '=');
-        if (equals == NULL) {
-            snprintf(error, error_size, "Invalid record at line %zu", line_number);
+        equals = strchr(key, '=');
+        if (equals == NULL || equals == key) {
             free(line);
             fclose(fp);
+            kc_flow_model_free(model);
+            snprintf(error, error_size, "Invalid record: %s", key);
             return -1;
         }
-
         *equals = '\0';
-        key = kc_flow_trim(cursor);
         value = kc_flow_trim(equals + 1);
-
-        if (*key == '\0') {
-            snprintf(error, error_size, "Empty key at line %zu", line_number);
+        key = kc_flow_trim(key);
+        if (model->record_count >= KC_FLOW_MAX_RECORDS) {
             free(line);
             fclose(fp);
+            kc_flow_model_free(model);
+            snprintf(error, error_size, "Too many records.");
             return -1;
         }
-
-        if (model->record_count >= KC_STDIO_MAX_RECORDS) {
-            snprintf(error, error_size, "Too many records in file: %s", path);
-            free(line);
-            fclose(fp);
-            return -1;
-        }
-
         model->records[model->record_count].key = kc_flow_strdup(key);
         model->records[model->record_count].value = kc_flow_strdup(value);
         if (model->records[model->record_count].key == NULL ||
-            model->records[model->record_count].value == NULL) {
-            snprintf(error, error_size, "Out of memory while reading file: %s", path);
+                model->records[model->record_count].value == NULL) {
             free(line);
             fclose(fp);
+            kc_flow_model_free(model);
+            snprintf(error, error_size, "Out of memory while loading file.");
             return -1;
         }
-
         model->record_count++;
     }
-
     free(line);
     fclose(fp);
-
-    if (kc_flow_model_collect(model) != 0) {
-        snprintf(error, error_size, "Unable to collect indexed sections: %s", path);
-        return -1;
-    }
-
-    return 0;
+    return kc_flow_finalize_model(model, error, error_size);
 }

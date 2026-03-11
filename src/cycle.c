@@ -1,264 +1,200 @@
 /**
  * cycle.c
- * Summary: Flow cycle detection.
+ * Summary: Flow graph endpoint and cycle validation.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
  * License: GNU GPL v3.0
  */
 
-#include "link.h"
+#include "flow.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static int kc_flow_has_parent_field_id(const kc_flow_model *model,
-                                       const kc_flow_index_set *set,
-                                       const char *prefix,
-                                       const char *field_id) {
+/**
+ * Checks whether one node id exists in the current model.
+ * @param model Parsed model.
+ * @param node_id Logical node id.
+ * @return int 1 when present; otherwise 0.
+ */
+static int kc_flow_has_node_id(const kc_flow_model *model, const char *node_id) {
     size_t i;
-    char key[128];
 
-    for (i = 0; i < set->count; ++i) {
-        const char *value;
-        snprintf(key, sizeof(key), "%s%d.id", prefix, set->values[i]);
-        value = kc_flow_model_get(model, key);
-        if (value != NULL && strcmp(value, field_id) == 0) {
+    for (i = 0; i < model->nodes.count; ++i) {
+        const char *current_id;
+
+        current_id = kc_flow_lookup_indexed_value(
+            model,
+            &model->nodes,
+            "node.",
+            model->nodes.values[i],
+            "id"
+        );
+        if (current_id != NULL && strcmp(current_id, node_id) == 0) {
             return 1;
         }
     }
-
     return 0;
 }
 
-static int kc_flow_find_node_index(char node_ids[][128],
-                                   size_t count,
-                                   const char *node_id) {
-    size_t i;
-    for (i = 0; i < count; ++i) {
-        if (strcmp(node_ids[i], node_id) == 0) {
-            return (int)i;
-        }
-    }
-    return -1;
-}
+/**
+ * Extracts one node id from one endpoint path.
+ * @param endpoint Endpoint text.
+ * @param kind Expected endpoint marker.
+ * @param node_id Output node id.
+ * @param size Output buffer size.
+ * @return int 1 on success; otherwise 0.
+ */
+static int kc_flow_extract_node_endpoint(
+    const char *endpoint,
+    const char *kind,
+    char *node_id,
+    size_t size
+) {
+    const char *cursor;
+    const char *suffix;
+    size_t len;
 
-static int kc_flow_parse_endpoint(const char *text, kc_flow_endpoint *endpoint) {
-    memset(endpoint, 0, sizeof(*endpoint));
-
-    if (text == NULL || text[0] == 0) {
-        return -1;
-    }
-
-    if (strncmp(text, "input.", 6) == 0) {
-        const char *field = text + 6;
-        if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-            return -1;
-        }
-        endpoint->kind = KC_FLOW_ENDPOINT_INPUT;
-        snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
+    if (strncmp(endpoint, "node.", 5) != 0) {
         return 0;
     }
-
-    if (strncmp(text, "output.", 7) == 0) {
-        const char *field = text + 7;
-        if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-            return -1;
-        }
-        endpoint->kind = KC_FLOW_ENDPOINT_OUTPUT;
-        snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
+    cursor = endpoint + 5;
+    suffix = strstr(cursor, kind);
+    if (suffix == NULL || suffix == cursor) {
         return 0;
     }
-
-    if (strncmp(text, "node.", 5) == 0) {
-        const char *cursor = text + 5;
-        const char *dot = strchr(cursor, '.');
-        const char *rest;
-
-        if (dot == NULL || dot == cursor) {
-            return -1;
-        }
-
-        if ((size_t)(dot - cursor) >= sizeof(endpoint->node_id)) {
-            return -1;
-        }
-
-        memcpy(endpoint->node_id, cursor, (size_t)(dot - cursor));
-        endpoint->node_id[dot - cursor] = 0;
-
-        rest = dot + 1;
-        if (strncmp(rest, "in.", 3) == 0) {
-            const char *field = rest + 3;
-            if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-                return -1;
-            }
-            endpoint->kind = KC_FLOW_ENDPOINT_NODE_IN;
-            snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-            return 0;
-        }
-
-        if (strncmp(rest, "out.", 4) == 0) {
-            const char *field = rest + 4;
-            if (field[0] == 0 || strlen(field) >= sizeof(endpoint->field_id)) {
-                return -1;
-            }
-            endpoint->kind = KC_FLOW_ENDPOINT_NODE_OUT;
-            snprintf(endpoint->field_id, sizeof(endpoint->field_id), "%s", field);
-            return 0;
-        }
+    len = (size_t)(suffix - cursor);
+    if (len >= size) {
+        return 0;
     }
-
-    return -1;
+    memcpy(node_id, cursor, len);
+    node_id[len] = '\0';
+    return 1;
 }
 
-static int kc_flow_validate_link_semantics(const kc_flow_model *model,
-                                           char node_ids[][128],
-                                           size_t node_count,
-                                           const kc_flow_endpoint *from,
-                                           const kc_flow_endpoint *to,
-                                           char *error,
-                                           size_t error_size) {
-    if (!(from->kind == KC_FLOW_ENDPOINT_INPUT ||
-          from->kind == KC_FLOW_ENDPOINT_NODE_OUT)) {
-        snprintf(error, error_size, "Invalid link source endpoint.");
-        return -1;
-    }
+/**
+ * Validates one source or destination endpoint.
+ * @param model Parsed model.
+ * @param endpoint Endpoint text.
+ * @param source Non-zero for source validation.
+ * @return int 1 when valid; otherwise 0.
+ */
+static int kc_flow_validate_endpoint(
+    const kc_flow_model *model,
+    const char *endpoint,
+    int source
+) {
+    char node_id[128];
 
-    if (!(to->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-          to->kind == KC_FLOW_ENDPOINT_OUTPUT)) {
-        snprintf(error, error_size, "Invalid link destination endpoint.");
-        return -1;
+    if (endpoint == NULL || endpoint[0] == '\0') {
+        return 0;
     }
-
-    if (from->kind == KC_FLOW_ENDPOINT_INPUT &&
-        !kc_flow_has_parent_field_id(model,
-                                     &model->inputs,
-                                     "input.",
-                                     from->field_id)) {
-        snprintf(error,
-                 error_size,
-                 "Unknown parent input id in link: %s",
-                 from->field_id);
-        return -1;
+    if (source) {
+        if (strncmp(endpoint, "input.", 6) == 0) {
+            return endpoint[6] != '\0';
+        }
+        if (kc_flow_extract_node_endpoint(endpoint, ".out.", node_id, sizeof(node_id))) {
+            return kc_flow_has_node_id(model, node_id);
+        }
+        return 0;
     }
-
-    if ((from->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-         from->kind == KC_FLOW_ENDPOINT_NODE_OUT) &&
-        kc_flow_find_node_index(node_ids, node_count, from->node_id) < 0) {
-        snprintf(error,
-                 error_size,
-                 "Unknown node id in link source: %s",
-                 from->node_id);
-        return -1;
+    if (strncmp(endpoint, "output.", 7) == 0) {
+        return endpoint[7] != '\0';
     }
-
-    if ((to->kind == KC_FLOW_ENDPOINT_NODE_IN ||
-         to->kind == KC_FLOW_ENDPOINT_NODE_OUT) &&
-        kc_flow_find_node_index(node_ids, node_count, to->node_id) < 0) {
-        snprintf(error,
-                 error_size,
-                 "Unknown node id in link destination: %s",
-                 to->node_id);
-        return -1;
+    if (kc_flow_extract_node_endpoint(endpoint, ".in.", node_id, sizeof(node_id))) {
+        return kc_flow_has_node_id(model, node_id);
     }
-
     return 0;
 }
 
-int kc_flow_detect_cycle(const kc_flow_model *model,
-                         char node_ids[][128],
-                         size_t node_count,
-                         char *error,
-                         size_t error_size) {
-    unsigned char edges[KC_STDIO_MAX_INDEXES][KC_STDIO_MAX_INDEXES];
-    size_t indegree[KC_STDIO_MAX_INDEXES];
-    size_t queue[KC_STDIO_MAX_INDEXES];
-    size_t head = 0;
-    size_t tail = 0;
-    size_t visited = 0;
+/**
+ * Validates the current flow graph for accidental cycles.
+ * @param model Parsed model.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_validate_cycles(
+    const kc_flow_model *model,
+    char *error,
+    size_t error_size
+) {
+    size_t indegree[KC_FLOW_MAX_INDEXES];
+    size_t queue[KC_FLOW_MAX_INDEXES];
+    char node_ids[KC_FLOW_MAX_INDEXES][128];
+    size_t node_count;
     size_t i;
+    size_t head;
+    size_t tail;
 
-    memset(edges, 0, sizeof(edges));
+    if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0) {
+        return -1;
+    }
     memset(indegree, 0, sizeof(indegree));
-
     for (i = 0; i < model->links.count; ++i) {
-        char from_key[128];
-        char to_key[128];
-        const char *from_value;
-        const char *to_value;
-        kc_flow_endpoint from_ep;
-        kc_flow_endpoint to_ep;
+        const char *from;
+        const char *to;
+        char from_id[128];
+        char to_id[128];
+        size_t dst;
 
-        snprintf(from_key, sizeof(from_key), "link.%d.from", model->links.values[i]);
-        snprintf(to_key, sizeof(to_key), "link.%d.to", model->links.values[i]);
-        from_value = kc_flow_model_get(model, from_key);
-        to_value = kc_flow_model_get(model, to_key);
-
-        if (kc_flow_parse_endpoint(from_value, &from_ep) != 0) {
-            snprintf(error, error_size, "Invalid link source endpoint.");
+        from = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "from");
+        to = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "to");
+        if (!kc_flow_validate_endpoint(model, from, 1) ||
+                !kc_flow_validate_endpoint(model, to, 0)) {
+            snprintf(error, error_size, "Invalid link endpoint.");
             return -1;
         }
-        if (kc_flow_parse_endpoint(to_value, &to_ep) != 0) {
-            snprintf(error, error_size, "Invalid link destination endpoint.");
-            return -1;
+        if (!kc_flow_extract_node_endpoint(from, ".out.", from_id, sizeof(from_id)) ||
+                !kc_flow_extract_node_endpoint(to, ".in.", to_id, sizeof(to_id))) {
+            continue;
         }
-
-        if (kc_flow_validate_link_semantics(model,
-                                            node_ids,
-                                            node_count,
-                                            &from_ep,
-                                            &to_ep,
-                                            error,
-                                            error_size) != 0) {
-            return -1;
-        }
-
-        if (from_ep.kind == KC_FLOW_ENDPOINT_NODE_OUT &&
-            to_ep.kind == KC_FLOW_ENDPOINT_NODE_IN) {
-            int from_idx = kc_flow_find_node_index(
-                node_ids, node_count, from_ep.node_id
-            );
-            int to_idx = kc_flow_find_node_index(
-                node_ids, node_count, to_ep.node_id
-            );
-            if (from_idx < 0 || to_idx < 0) {
-                snprintf(error, error_size, "Unable to resolve node edge indexes.");
-                return -1;
-            }
-            if (!edges[from_idx][to_idx]) {
-                edges[from_idx][to_idx] = 1;
-                indegree[to_idx]++;
+        for (dst = 0; dst < node_count; ++dst) {
+            if (strcmp(node_ids[dst], to_id) == 0) {
+                indegree[dst]++;
+                break;
             }
         }
     }
-
+    head = 0;
+    tail = 0;
     for (i = 0; i < node_count; ++i) {
         if (indegree[i] == 0) {
             queue[tail++] = i;
         }
     }
-
     while (head < tail) {
-        size_t u = queue[head++];
-        size_t v;
-        visited++;
+        size_t src_index;
 
-        for (v = 0; v < node_count; ++v) {
-            if (edges[u][v]) {
-                if (indegree[v] > 0) {
-                    indegree[v]--;
-                }
-                if (indegree[v] == 0) {
-                    queue[tail++] = v;
+        src_index = queue[head++];
+        for (i = 0; i < model->links.count; ++i) {
+            const char *from;
+            const char *to;
+            char from_id[128];
+            char to_id[128];
+            size_t dst;
+
+            from = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "from");
+            to = kc_flow_lookup_indexed_value(model, &model->links, "link.", model->links.values[i], "to");
+            if (!kc_flow_extract_node_endpoint(from, ".out.", from_id, sizeof(from_id)) ||
+                    !kc_flow_extract_node_endpoint(to, ".in.", to_id, sizeof(to_id)) ||
+                    strcmp(node_ids[src_index], from_id) != 0) {
+                continue;
+            }
+            for (dst = 0; dst < node_count; ++dst) {
+                if (strcmp(node_ids[dst], to_id) == 0) {
+                    if (--indegree[dst] == 0) {
+                        queue[tail++] = dst;
+                    }
+                    break;
                 }
             }
         }
     }
-
-    if (visited != node_count) {
-        snprintf(error, error_size, "Cycle detected in flow links.");
+    if (tail != node_count) {
+        snprintf(error, error_size, "Flow contains one cycle.");
         return -1;
     }
-
     return 0;
 }

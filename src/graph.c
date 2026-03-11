@@ -1,189 +1,234 @@
 /**
  * graph.c
- * Summary: Composed flow runtime orchestrator.
+ * Summary: Node lookup and nested-node execution for composed flows.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
  * License: GNU GPL v3.0
  */
 
-#include "graph.h"
-
 #include "flow.h"
-#include "link.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#define KC_FLOW_PATH_BUFFER 4096
-
 /**
- * Runs one composed flow graph with nested contract/flow dispatch.
- * @param model Parsed flow model.
- * @param overrides Runtime overrides.
- * @param path Source flow path.
- * @param outputs Optional collected `output.*` values.
- * @param error Error buffer.
- * @param error_size Error buffer size.
- * @return int 0 on success; non-zero on execution/validation failure.
+ * Resolves one node record id by node id.
+ * @param model Parsed model.
+ * @param node_id Logical node id.
+ * @return int Record id or -1.
  */
-int kc_flow_run_flow(const kc_flow_model *model,
-                     const kc_flow_overrides *overrides,
-                     const char *path,
-                     kc_flow_overrides *outputs,
-                     char *error,
-                     size_t error_size) {
-    kc_flow_link_entry links[KC_STDIO_MAX_INDEXES];
-    char node_ids[KC_STDIO_MAX_INDEXES][128];
-    unsigned char executed[KC_STDIO_MAX_INDEXES];
-    kc_flow_overrides values;
-    char flow_dir[KC_FLOW_PATH_BUFFER];
-    size_t link_count = 0;
-    size_t completed = 0;
-    size_t node_count = 0;
+static int kc_flow_find_node_record(const kc_flow_model *model, const char *node_id) {
     size_t i;
 
-    memset(executed, 0, sizeof(executed));
-    kc_flow_overrides_init(&values);
-    if (outputs != NULL) {
-        kc_flow_overrides_init(outputs);
-    }
+    for (i = 0; i < model->nodes.count; ++i) {
+        const char *current_id;
 
-    kc_flow_dirname(path, flow_dir, sizeof(flow_dir));
-
-    if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0) {
-        kc_flow_overrides_free(&values);
-        return -1;
-    }
-
-    if (kc_flow_detect_cycle(model, node_ids, node_count, error, error_size) != 0) {
-        kc_flow_overrides_free(&values);
-        return -1;
-    }
-
-    if (kc_flow_collect_links(model,
-                              node_ids,
-                              node_count,
-                              links,
-                              &link_count,
-                              error,
-                              error_size) != 0) {
-        kc_flow_overrides_free(&values);
-        return -1;
-    }
-
-    if (kc_flow_seed_parent_inputs(overrides, &values, error, error_size) != 0) {
-        kc_flow_overrides_free(&values);
-        return -1;
-    }
-
-    while (completed < node_count) {
-        int progressed = 0;
-
-        for (i = 0; i < node_count; ++i) {
-            kc_flow_overrides node_inputs;
-            kc_flow_overrides node_outputs;
-            size_t j;
-            int ready = 1;
-
-            if (executed[i]) {
-                continue;
-            }
-
-            kc_flow_overrides_init(&node_inputs);
-            kc_flow_overrides_init(&node_outputs);
-
-            for (j = 0; j < link_count; ++j) {
-                const char *source_value;
-                char source_key[160];
-                char target_key[160];
-
-                if (links[j].to.kind != KC_FLOW_ENDPOINT_NODE_IN ||
-                    strcmp(links[j].to.node_id, node_ids[i]) != 0) {
-                    continue;
-                }
-
-                if (links[j].from.kind == KC_FLOW_ENDPOINT_INPUT) {
-                    snprintf(source_key,
-                             sizeof(source_key),
-                             "input.%s",
-                             links[j].from.field_id);
-                } else {
-                    snprintf(source_key,
-                             sizeof(source_key),
-                             "node.%s.out.%s",
-                             links[j].from.node_id,
-                             links[j].from.field_id);
-                }
-
-                source_value = kc_flow_overrides_get(&values, source_key);
-                if (source_value == NULL) {
-                    ready = 0;
-                    break;
-                }
-
-                snprintf(target_key,
-                         sizeof(target_key),
-                         "input.%s",
-                         links[j].to.field_id);
-                if (kc_flow_overrides_add(&node_inputs, target_key, source_value) != 0) {
-                    kc_flow_overrides_free(&node_inputs);
-                    kc_flow_overrides_free(&node_outputs);
-                    kc_flow_overrides_free(&values);
-                    snprintf(error, error_size, "Unable to prepare node inputs.");
-                    return -1;
-                }
-            }
-
-            if (!ready) {
-                kc_flow_overrides_free(&node_inputs);
-                kc_flow_overrides_free(&node_outputs);
-                continue;
-            }
-
-            if (kc_flow_run_node(model,
-                                 flow_dir,
-                                 node_ids[i],
-                                 &node_inputs,
-                                 &node_outputs,
-                                 error,
-                                 error_size) != 0) {
-                kc_flow_overrides_free(&node_inputs);
-                kc_flow_overrides_free(&node_outputs);
-                kc_flow_overrides_free(&values);
-                return -1;
-            }
-
-            if (kc_flow_collect_node_outputs(links,
-                                             link_count,
-                                             node_ids[i],
-                                             &node_outputs,
-                                             &values,
-                                             error,
-                                             error_size) != 0) {
-                kc_flow_overrides_free(&node_inputs);
-                kc_flow_overrides_free(&node_outputs);
-                kc_flow_overrides_free(&values);
-                return -1;
-            }
-
-            executed[i] = 1;
-            completed++;
-            progressed = 1;
-            kc_flow_overrides_free(&node_inputs);
-            kc_flow_overrides_free(&node_outputs);
+        current_id = kc_flow_lookup_indexed_value(
+            model,
+            &model->nodes,
+            "node.",
+            model->nodes.values[i],
+            "id"
+        );
+        if (current_id != NULL && strcmp(current_id, node_id) == 0) {
+            return model->nodes.values[i];
         }
+    }
+    return -1;
+}
 
-        if (!progressed) {
-            kc_flow_overrides_free(&values);
-            snprintf(error, error_size, "Unable to resolve flow dependencies.");
+/**
+ * Collects dense node ids.
+ * @param model Parsed model.
+ * @param node_ids Output node ids.
+ * @param count Output count.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_collect_node_ids(
+    const kc_flow_model *model,
+    char node_ids[][128],
+    size_t *count,
+    char *error,
+    size_t error_size
+) {
+    size_t i;
+
+    *count = model->nodes.count;
+    if (*count > KC_FLOW_MAX_INDEXES) {
+        snprintf(error, error_size, "Too many nodes.");
+        return -1;
+    }
+    for (i = 0; i < model->nodes.count; ++i) {
+        const char *node_id;
+
+        node_id = kc_flow_lookup_indexed_value(
+            model,
+            &model->nodes,
+            "node.",
+            model->nodes.values[i],
+            "id"
+        );
+        if (node_id == NULL || strlen(node_id) >= sizeof(node_ids[0])) {
+            snprintf(error, error_size, "Invalid node id.");
             return -1;
         }
+        snprintf(node_ids[i], sizeof(node_ids[0]), "%s", node_id);
     }
+    return 0;
+}
 
-    i = kc_flow_resolve_final_outputs(
-        model, links, link_count, &values, outputs, error, error_size
+/**
+ * Resolves one node contract or nested flow.
+ * @param model Parent model.
+ * @param flow_dir Parent directory.
+ * @param node_id Logical node id.
+ * @param node_inputs Input overrides.
+ * @param node_outputs Output overrides.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_run_node(
+    const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
+    const char *flow_dir,
+    const char *node_id,
+    const kc_flow_overrides *runtime_params,
+    int fd_in,
+    int *fd_out,
+    char *error,
+    size_t error_size
+) {
+    int node_record;
+    const char *target;
+    const char *target_kind;
+    char path[KC_FLOW_MAX_PATH];
+    kc_flow_model child;
+    kc_flow_overrides node_params;
+    int child_fd_out;
+    int status_fd;
+
+    child_fd_out = *fd_out;
+    *fd_out = -1;
+    status_fd = cfg != NULL ? cfg->fd_status : -1;
+    node_record = kc_flow_find_node_record(model, node_id);
+    if (node_record < 0) {
+        snprintf(error, error_size, "Unknown node: %s", node_id);
+        return -1;
+    }
+    target = kc_flow_lookup_indexed_value(
+        model,
+        &model->nodes,
+        "node.",
+        node_record,
+        "contract"
     );
-    kc_flow_overrides_free(&values);
-    return i;
+    if (target == NULL || kc_flow_build_path(path, sizeof(path), flow_dir, target) != 0) {
+        snprintf(error, error_size, "Invalid node contract path.");
+        return -1;
+    }
+    if (!kc_flow_file_exists(path)) {
+        snprintf(error, error_size, "Node contract file not found: %s", path);
+        return -1;
+    }
+    target_kind = "contract";
+    kc_flow_model_init(&child);
+    kc_flow_overrides_init(&node_params);
+    if (kc_flow_load_file(path, &child, error, error_size) != 0 ||
+            kc_flow_collect_node_params(
+                model,
+                node_record,
+                runtime_params,
+                &node_params,
+                error,
+                error_size
+            ) != 0 ||
+            kc_flow_validate_model(&child, error, error_size) != 0) {
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return -1;
+    }
+    if (child.kind == KC_FLOW_FILE_FLOW) {
+        target_kind = "flow";
+    }
+    if (child.outputs.count > 0 && child_fd_out < 0) {
+        child_fd_out = kc_flow_create_artifact_fd(error, error_size);
+    } else if (child.outputs.count == 0) {
+        child_fd_out = -1;
+    }
+    if (child.outputs.count > 0 && child_fd_out < 0) {
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return -1;
+    }
+    kc_flow_status_write_node_event(
+        status_fd,
+        "node.started",
+        node_id,
+        target_kind,
+        path,
+        NULL,
+        NULL
+    );
+    fprintf(stderr, "[kc-flow] step node=%s contract=%s\n", node_id, path);
+    if (child.kind == KC_FLOW_FILE_FLOW) {
+        int rc;
+        kc_flow_runtime_cfg nested_cfg;
+
+        nested_cfg = *cfg;
+        nested_cfg.fd_in = fd_in;
+        nested_cfg.fd_out = child_fd_out;
+        rc = kc_flow_run_flow(&child, &nested_cfg, &node_params, path, error, error_size);
+        kc_flow_status_write_node_event(
+            status_fd,
+            "node.finished",
+            node_id,
+            target_kind,
+            path,
+            rc == 0 ? "ok" : "error",
+            rc == 0 ? NULL : error
+        );
+        if (rc == 0) {
+            *fd_out = child_fd_out;
+        } else if (child_fd_out >= 0) {
+            kc_flow_release_fd(child_fd_out);
+        }
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return rc;
+    }
+    {
+        int rc;
+
+        rc = kc_flow_run_contract(
+            &child,
+            &node_params,
+            path,
+            fd_in,
+            child_fd_out,
+            status_fd,
+            error,
+            error_size
+        );
+        kc_flow_status_write_node_event(
+            status_fd,
+            "node.finished",
+            node_id,
+            target_kind,
+            path,
+            rc == 0 ? "ok" : "error",
+            rc == 0 ? NULL : error
+        );
+        if (rc == 0) {
+            *fd_out = child_fd_out;
+        } else if (child_fd_out >= 0) {
+            kc_flow_release_fd(child_fd_out);
+        }
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return rc;
+    }
 }
