@@ -5,6 +5,11 @@
 `kc-flow` executes machine-oriented flow graphs that compose commands through
 one headless runtime.
 
+This repository is the machine-readable runtime layer. It is not a GUI and
+it is not the human-facing management surface for DAG authoring or runtime
+inspection. Human-oriented management of these DAGs is expected to live in
+separate GUI applications, such as `kc-studio`.
+
 ## Definitions
 
 - **Flow**: executable DAG unit that may run directly.
@@ -25,7 +30,7 @@ atomic contract definition.
 Invocation contexts:
 
 - root flow: launched with `kc-flow --run <file>`
-- nested flow: invoked by one contract command that runs `kc-flow`
+- sub-execution: started by one contract command that runs `kc-flow`
 
 ## Architecture
 
@@ -61,8 +66,8 @@ Invocation contexts:
 - Ready nodes are dispatched by dependency order.
 - Runtime concurrency is limited by `--workers`.
 - Links define one horizontal DAG inside the same runtime execution.
-- One nested flow is one sub-execution started explicitly in
-    `runtime.command`.
+- One child flow becomes one sub-execution only when one contract command
+    starts `kc-flow` explicitly in `runtime.command`.
 - Cycles are invalid topologies and fail fast.
 - Loop semantics are not supported in this stage.
 - Runtime transport is descriptor-based.
@@ -93,7 +98,7 @@ kc-flow --run /path/to/file.flow
 
 ### Run with overrides
 ```bash
-kc-flow --run /path/to/file.flow --set param.width=1024
+kc-flow --run /path/to/file.flow --set param.message=hello
 ```
 
 ### Run with a custom worker limit
@@ -117,6 +122,37 @@ kc-flow --run /path/to/file.flow --fd-status 5
 `--fd-status` emits one line per runtime event without changing the
 functional data path of the flow.
 
+### Minimal graph examples
+
+Linear graph:
+```bash
+./etc/linear.sh
+kc-flow --run ./etc/linear.flow
+kc-flow --run ./etc/linear.flow --set param.message=kc
+```
+
+Nesting graph:
+```bash
+./etc/nest.sh
+kc-flow --run ./etc/nest.flow
+kc-flow --run ./etc/nest.flow --set param.message=kc
+```
+
+The `linear` example stays inside one DAG:
+```text
+source -> render
+```
+
+The `nest` example starts one child sub-execution from one contract:
+```text
+prepare -> child
+```
+
+Inside `child`, one separate `kc-flow` run executes:
+```text
+render
+```
+
 ### Full Parameter Reference
 
 | Flag | Description | Default |
@@ -132,10 +168,12 @@ functional data path of the flow.
 Status event examples:
 
 ```text
-event=run.started pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow
-event=node.started pid=1001 kind=node node=child target_kind=contract target_path=/tmp/child.flow
-event=node.finished pid=1001 kind=node node=child target_kind=contract target_path=/tmp/child.flow status=ok
-event=run.finished pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow status=ok
+event=run.started pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow
+event=node.started pid=1001 kind=node node=prepare target_kind=contract target_path=/repo/etc/nest-prepare.flow
+event=node.finished pid=1001 kind=node node=prepare target_kind=contract target_path=/repo/etc/nest-prepare.flow status=ok
+event=node.started pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow
+event=node.finished pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow status=ok
+event=run.finished pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow status=ok
 ```
 
 ## Implementation Notes
