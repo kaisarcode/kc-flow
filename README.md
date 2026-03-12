@@ -1,4 +1,4 @@
-# kc-flow
+# kc-flow - Graph Runtime Engine
 
 > **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
 
@@ -19,7 +19,7 @@ descriptor transport, and runtime status emission over those graphs.
 
 Flow structure:
 
-- identity: `flow.id`, `flow.name`
+- identity: `flow.id`, optional `flow.name`
 - interface: `input.*`, `output.*`, `param.*`
 - atomic runtime: `runtime.command`
 - composed graph: `node.*`, `link.*`
@@ -53,9 +53,10 @@ Invocation contexts:
 
 ### Contract/Flow Model
 
-- Atomic contract uses `contract.id`, `contract.name`, `input.*`, `param.*`,
+- Atomic contract uses `contract.id`, optional `contract.name`, `input.*`, `param.*`,
     `output.*`, and `runtime.command`.
-- Composed flow uses `flow.id`, `flow.name`, `node.N.id`, `node.N.contract`,
+- Composed flow uses `flow.id`, optional `flow.name`, `node.N.id`,
+    `node.N.contract`,
     `link.N.from`, and `link.N.to`.
 
 ### Endpoint Semantics
@@ -202,22 +203,18 @@ Install the current-architecture production binary on Linux:
 wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-flow/master/install.sh | bash
 ```
 
-## Compilation
+## Build
+
 Build for specific architectures:
 ```bash
-Linux x86_64:
 make ARCH=x86_64
 
-Windows x86_64:
 make ARCH=win64
 
-Linux ARM64:
 make ARCH=aarch64
 
-Android ARM64:
 make ARCH=arm64-v8a
 
-Build all:
 make all
 ```
 

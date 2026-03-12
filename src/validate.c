@@ -25,8 +25,33 @@ int kc_flow_validate_model(
 ) {
     size_t i;
 
-    if (model->id == NULL || model->name == NULL) {
-        snprintf(error, error_size, "Missing id or name.");
+    for (i = 0; i < model->inputs.count; ++i) {
+        if (kc_flow_lookup_indexed_value(
+                model,
+                &model->inputs,
+                "input.",
+                model->inputs.values[i],
+                "id"
+            ) == NULL) {
+            snprintf(error, error_size, "Missing input id.");
+            return -1;
+        }
+    }
+    for (i = 0; i < model->outputs.count; ++i) {
+        if (kc_flow_lookup_indexed_value(
+                model,
+                &model->outputs,
+                "output.",
+                model->outputs.values[i],
+                "id"
+            ) == NULL) {
+            snprintf(error, error_size, "Missing output id.");
+            return -1;
+        }
+    }
+
+    if (model->id == NULL) {
+        snprintf(error, error_size, "Missing required id.");
         return -1;
     }
     if (model->inputs.count > 1 || model->outputs.count > 1) {

@@ -222,6 +222,51 @@ EOF
     fi
     pass "Functional: cycle validation verified."
 
+    cat > "$FLOW_TMP_DIR/anonymous-source.flow" <<'EOF'
+contract.id=kc.example.anonymous-source
+output.1.id=raw
+output.1.type=stream
+runtime.command=printf 'anonymous' >"/proc/self/fd/$KC_FLOW_FD_OUT"
+EOF
+
+    cat > "$FLOW_TMP_DIR/anonymous.flow" <<'EOF'
+flow.id=kc.example.anonymous
+output.1.id=raw
+output.1.type=stream
+node.1.id=source
+node.1.contract=anonymous-source.flow
+link.1.from=node.source.out.raw
+link.1.to=output.raw
+EOF
+
+    OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/anonymous.flow")
+    [ "$OUTPUT" = "anonymous" ] || fail "Functional: flow without name should still run."
+    pass "Functional: flow without name verified."
+
+    cat > "$FLOW_TMP_DIR/no-input.flow" <<'EOF'
+contract.id=kc.example.no-input
+output.1.id=raw
+output.1.type=stream
+runtime.command=printf 'no-input' >"/proc/self/fd/$KC_FLOW_FD_OUT"
+EOF
+
+    OUTPUT=$("$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/no-input.flow")
+    [ "$OUTPUT" = "no-input" ] || fail "Functional: contract without input should still run."
+    pass "Functional: contract without input verified."
+
+    cat > "$FLOW_TMP_DIR/bad-input.flow" <<'EOF'
+contract.id=kc.example.bad-input
+input.1.type=stream
+output.1.id=raw
+output.1.type=stream
+runtime.command=cat "/proc/self/fd/$KC_FLOW_FD_IN" >"/proc/self/fd/$KC_FLOW_FD_OUT"
+EOF
+
+    if "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/bad-input.flow" >/dev/null 2>&1; then
+        fail "Functional: declared input without id should fail."
+    fi
+    pass "Functional: declared input without id verified."
+
     rm -rf "$FLOW_TMP_DIR"
     trap - RETURN
 }
