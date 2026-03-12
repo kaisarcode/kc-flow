@@ -147,7 +147,7 @@ source -> render
 
 The `nest` example starts one child sub-execution from one contract:
 ```text
-prepare -> child
+child
 ```
 
 Inside `child`, one separate `kc-flow` run executes:
@@ -171,8 +171,6 @@ Status event examples:
 
 ```text
 event=run.started pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow
-event=node.started pid=1001 kind=node node=prepare target_kind=contract target_path=/repo/etc/nest-prepare.flow
-event=node.finished pid=1001 kind=node node=prepare target_kind=contract target_path=/repo/etc/nest-prepare.flow status=ok
 event=node.started pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow
 event=node.finished pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow status=ok
 event=run.finished pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow status=ok

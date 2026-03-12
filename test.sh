@@ -88,11 +88,11 @@ test_functional() {
 
     NEST_FILE="$APP_ROOT/etc/nest.flow"
     OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE")
-    [ "$OUTPUT" = "child:parent:hello" ] || fail "Functional: nesting graph output mismatch."
+    [ "$OUTPUT" = "child:hello" ] || fail "Functional: nesting graph output mismatch."
     pass "Functional: nesting graph output verified."
 
     OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE" --set param.message=kc)
-    [ "$OUTPUT" = "child:parent:kc" ] || fail "Functional: nesting graph parameter override failed."
+    [ "$OUTPUT" = "child:kc" ] || fail "Functional: nesting graph parameter override failed."
     pass "Functional: nesting graph parameter override verified."
 
     INPUT_FILE=$(mktemp)
@@ -123,7 +123,7 @@ EOF
     exec 5> "$STATUS_FILE"
     OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE" --fd-status 5)
     exec 5>&-
-    [ "$OUTPUT" = "child:parent:hello" ] || fail "Functional: status fd altered nesting output."
+    [ "$OUTPUT" = "child:hello" ] || fail "Functional: status fd altered nesting output."
     grep -q 'event=run.started' "$STATUS_FILE" || fail "Functional: run start status missing."
     grep -q 'event=run.finished' "$STATUS_FILE" || fail "Functional: run finish status missing."
     rm -f "$STATUS_FILE"

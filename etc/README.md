@@ -9,7 +9,6 @@ This directory contains the minimal graph composition examples for `kc-flow`.
 - `linear-render.flow`: render contract for the linear graph
 - `linear.sh`: helper script that runs the linear graph
 - `nest.flow`: one parent graph that starts one child sub-execution
-- `nest-prepare.flow`: parent prepare contract
 - `nest-child.flow`: wrapper contract that runs one child `kc-flow`
 - `nest-child-inner.flow`: child flow executed by the wrapper contract
 - `nest-child-render.flow`: leaf contract inside the child flow
@@ -26,7 +25,7 @@ source -> render
 `nest.flow` starts one child sub-execution:
 
 ```text
-prepare -> child
+child
 ```
 
 Inside `child`, one separate `kc-flow` run executes:
