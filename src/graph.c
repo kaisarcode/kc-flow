@@ -1,6 +1,6 @@
 /**
  * graph.c
- * Summary: Node lookup and nested-node execution for composed flows.
+ * Summary: Node lookup and contract execution for composed flows.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -81,7 +81,7 @@ int kc_flow_collect_node_ids(
 }
 
 /**
- * Resolves one node contract or nested flow.
+ * Resolves one node contract.
  * @param model Parent model.
  * @param flow_dir Parent directory.
  * @param node_id Logical node id.
@@ -104,7 +104,6 @@ int kc_flow_run_node(
 ) {
     int node_record;
     const char *target;
-    const char *target_kind;
     char path[KC_FLOW_MAX_PATH];
     kc_flow_model child;
     kc_flow_overrides node_params;
@@ -134,7 +133,6 @@ int kc_flow_run_node(
         snprintf(error, error_size, "Node contract file not found: %s", path);
         return -1;
     }
-    target_kind = "contract";
     kc_flow_model_init(&child);
     kc_flow_overrides_init(&node_params);
     if (kc_flow_load_file(path, &child, error, error_size) != 0 ||
@@ -151,8 +149,11 @@ int kc_flow_run_node(
         kc_flow_model_free(&child);
         return -1;
     }
-    if (child.kind == KC_FLOW_FILE_FLOW) {
-        target_kind = "flow";
+    if (child.kind != KC_FLOW_FILE_CONTRACT) {
+        snprintf(error, error_size, "Node target must be one contract.");
+        kc_flow_overrides_free(&node_params);
+        kc_flow_model_free(&child);
+        return -1;
     }
     if (child.outputs.count > 0 && child_fd_out < 0) {
         child_fd_out = kc_flow_create_artifact_fd(error, error_size);
@@ -168,38 +169,12 @@ int kc_flow_run_node(
         status_fd,
         "node.started",
         node_id,
-        target_kind,
+        "contract",
         path,
         NULL,
         NULL
     );
     fprintf(stderr, "[kc-flow] step node=%s contract=%s\n", node_id, path);
-    if (child.kind == KC_FLOW_FILE_FLOW) {
-        int rc;
-        kc_flow_runtime_cfg nested_cfg;
-
-        nested_cfg = *cfg;
-        nested_cfg.fd_in = fd_in;
-        nested_cfg.fd_out = child_fd_out;
-        rc = kc_flow_run_flow(&child, &nested_cfg, &node_params, path, error, error_size);
-        kc_flow_status_write_node_event(
-            status_fd,
-            "node.finished",
-            node_id,
-            target_kind,
-            path,
-            rc == 0 ? "ok" : "error",
-            rc == 0 ? NULL : error
-        );
-        if (rc == 0) {
-            *fd_out = child_fd_out;
-        } else if (child_fd_out >= 0) {
-            kc_flow_release_fd(child_fd_out);
-        }
-        kc_flow_overrides_free(&node_params);
-        kc_flow_model_free(&child);
-        return rc;
-    }
     {
         int rc;
 
@@ -217,7 +192,7 @@ int kc_flow_run_node(
             status_fd,
             "node.finished",
             node_id,
-            target_kind,
+            "contract",
             path,
             rc == 0 ? "ok" : "error",
             rc == 0 ? NULL : error

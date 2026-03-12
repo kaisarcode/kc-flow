@@ -38,29 +38,28 @@ int kc_flow_run_contract(
     char *error,
     size_t error_size
 ) {
-    char cfg_dir[KC_FLOW_MAX_PATH];
-    char workdir[KC_FLOW_MAX_PATH];
-    char *resolved_script;
+    kc_flow_overrides effective_params;
+    char *resolved_command;
 
-    resolved_script = NULL;
-    kc_flow_dirname(cfg_path, cfg_dir, sizeof(cfg_dir));
-    if (kc_flow_build_path(
-            workdir,
-            sizeof(workdir),
-            cfg_dir,
-            model->runtime_workdir != NULL ? model->runtime_workdir : "."
+    (void)cfg_path;
+    if (kc_flow_collect_effective_params(
+            model,
+            overrides,
+            &effective_params,
+            error,
+            error_size
         ) != 0) {
-        snprintf(error, error_size, "Unable to resolve workdir.");
         return -1;
     }
-    resolved_script = kc_flow_resolve_template(
+    resolved_command = kc_flow_resolve_template(
         model,
-        overrides,
-        model->runtime_script,
+        &effective_params,
+        model->runtime_command,
         error,
         error_size
     );
-    if (resolved_script == NULL) {
+    if (resolved_command == NULL) {
+        kc_flow_overrides_free(&effective_params);
         return -1;
     }
     (void)fd_status;
@@ -68,15 +67,16 @@ int kc_flow_run_contract(
         int rc;
 
         rc = kc_flow_platform_run_contract(
-            workdir,
-            resolved_script,
-            overrides,
+            cfg_path,
+            resolved_command,
+            &effective_params,
             fd_in,
             fd_out,
             error,
             error_size
         );
-        free(resolved_script);
+        free(resolved_command);
+        kc_flow_overrides_free(&effective_params);
         return rc;
     }
 }

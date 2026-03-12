@@ -13,6 +13,15 @@
 #include <string.h>
 
 /**
+ * Resolves one model kind name.
+ * @param model Parsed model.
+ * @return const char* Stable kind name.
+ */
+const char *kc_flow_model_kind_name(const kc_flow_model *model) {
+    return model != NULL && model->kind == KC_FLOW_FILE_FLOW ? "flow" : "contract";
+}
+
+/**
  * Executes one flow.
  * @param model Parsed model.
  * @param cfg Runtime configuration.
@@ -220,4 +229,37 @@ int kc_flow_run_flow(
     kc_flow_cleanup_artifacts(&artifacts);
     kc_flow_overrides_free(&artifacts);
     return 0;
+}
+
+/**
+ * Executes one loaded model.
+ * @param model Parsed model.
+ * @param cfg Runtime configuration.
+ * @param overrides Runtime parameter overrides.
+ * @param path Source path.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_run_model(
+    const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
+    const kc_flow_overrides *overrides,
+    const char *path,
+    char *error,
+    size_t error_size
+) {
+    if (model->kind == KC_FLOW_FILE_FLOW) {
+        return kc_flow_run_flow(model, cfg, overrides, path, error, error_size);
+    }
+    return kc_flow_run_contract(
+        model,
+        overrides,
+        path,
+        cfg != NULL ? cfg->fd_in : -1,
+        cfg != NULL ? cfg->fd_out : -1,
+        cfg != NULL ? cfg->fd_status : -1,
+        error,
+        error_size
+    );
 }

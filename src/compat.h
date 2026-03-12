@@ -22,8 +22,8 @@ void kc_flow_platform_close_fd(int fd);
 int kc_flow_platform_open_null_fd(int write_mode);
 int kc_flow_platform_create_artifact_fd(char *error, size_t error_size);
 int kc_flow_platform_run_contract(
-    const char *workdir,
-    const char *script,
+    const char *cfg_path,
+    const char *command,
     const struct kc_flow_overrides *overrides,
     int fd_in,
     int fd_out,

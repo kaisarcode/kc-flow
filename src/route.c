@@ -8,11 +8,9 @@
  */
 
 #include "flow.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 int kc_flow_artifact_store(kc_flow_overrides *artifacts, const char *key, int fd);
 int kc_flow_artifact_load(const kc_flow_overrides *artifacts, const char *key);
 int kc_flow_artifact_refcount_load(const kc_flow_overrides *artifacts, const char *endpoint);
@@ -257,25 +255,4 @@ int kc_flow_flush_flow_output(const kc_flow_model *model, const kc_flow_override
     }
     kc_flow_release_fd(artifact_fd);
     return 0;
-}
-
-/**
- * Closes every stored artifact descriptor.
- * @param artifacts Runtime artifact store.
- * @return void
- */
-void kc_flow_cleanup_artifacts(kc_flow_overrides *artifacts) {
-    size_t i;
-
-    for (i = 0; i < artifacts->count; ++i) {
-        int fd;
-
-        if (strncmp(artifacts->records[i].key, "__ref__:", 8) == 0) {
-            continue;
-        }
-        fd = atoi(artifacts->records[i].value);
-        if (fd >= 0) {
-            kc_flow_release_fd(fd);
-        }
-    }
 }

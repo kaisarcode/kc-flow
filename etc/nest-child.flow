@@ -1,0 +1,13 @@
+contract.id=kc.nest.child
+contract.name=Nest Child
+contract.description=Wrapper contract that starts one child kc-flow sub-execution
+
+input.1.id=raw
+input.1.type=stream
+input.1.label=Raw Input
+
+output.1.id=raw
+output.1.type=stream
+output.1.label=Raw Output
+
+runtime.command="${KC_FLOW_BIN:-kc-flow}" --run "$KC_FLOW_DIR/nest-child-inner.flow" --fd-in "$KC_FLOW_FD_IN" --fd-out "$KC_FLOW_FD_OUT"

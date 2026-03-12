@@ -1,0 +1,19 @@
+flow.id=kc.nest.child
+flow.name=Nest Child
+flow.description=Child flow executed as one separate kc-flow sub-execution
+
+input.1.id=raw
+input.1.type=stream
+input.1.label=Raw Input
+
+output.1.id=raw
+output.1.type=stream
+output.1.label=Raw Output
+
+node.1.id=render
+node.1.contract=nest-child-render.flow
+
+link.1.from=input.raw
+link.1.to=node.render.in.raw
+link.2.from=node.render.out.raw
+link.2.to=output.raw

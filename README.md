@@ -2,20 +2,19 @@
 
 > **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
 
-`kc-flow` executes machine-oriented flow graphs that compose commands and
-nested flows through a headless runtime.
+`kc-flow` executes machine-oriented flow graphs that compose commands through
+one headless runtime.
 
 ## Definitions
 
-- **Flow**: executable unit that may run directly or be referenced as one node
-    inside another flow.
+- **Flow**: executable DAG unit that may run directly.
 - **Contract**: atomic node definition described with `key=value` records.
 
 Flow structure:
 
 - identity: `flow.id`, `flow.name`
 - interface: `input.*`, `output.*`, `param.*`
-- atomic runtime: `runtime.*`
+- atomic runtime: `runtime.command`
 - composed graph: `node.*`, `link.*`
 
 ## Runtime Surface
@@ -26,27 +25,29 @@ atomic contract definition.
 Invocation contexts:
 
 - root flow: launched with `kc-flow --run <file>`
-- nested flow: referenced by another flow as a node
+- nested flow: invoked by one contract command that runs `kc-flow`
 
 ## Architecture
 
 `kc-flow` is a process-graph runtime, not a programming language runtime.
 
 - Contracts and flows define structure with `key=value`.
-- One node executes one command or script.
-- One node receives raw input through one runtime descriptor.
+- One node executes one command string.
+- One node receives one functional input FD.
 - One node receives its declared parameters as environment for that execution.
-- One node decides internally how to map that input and those parameters to
-    the command it runs.
+- One node decides internally how to map those FDs and parameters to the
+    command it runs.
+- One flow keeps its linked nodes inside the same DAG execution.
+- One contract may launch one sub-execution by invoking `kc-flow` in
+    `runtime.command`.
 - Composed flows schedule ready nodes by resolved dependencies.
-- Nested execution is the normal model (`flow -> node -> contract/flow`).
 - Root execution uses `--fd-in` and `--fd-out` for the public flow interface.
 - Runtime status can be observed separately through `--fd-status`.
 
 ### Contract/Flow Model
 
 - Atomic contract uses `contract.id`, `contract.name`, `input.*`, `param.*`,
-    `output.*`, and `runtime.script`.
+    `output.*`, and `runtime.command`.
 - Composed flow uses `flow.id`, `flow.name`, `node.N.id`, `node.N.contract`,
     `link.N.from`, and `link.N.to`.
 
@@ -59,13 +60,18 @@ Invocation contexts:
 
 - Ready nodes are dispatched by dependency order.
 - Runtime concurrency is limited by `--workers`.
-- Nested flows behave like any other node.
+- Links define one horizontal DAG inside the same runtime execution.
+- One nested flow is one sub-execution started explicitly in
+    `runtime.command`.
 - Cycles are invalid topologies and fail fast.
 - Loop semantics are not supported in this stage.
 - Runtime transport is descriptor-based.
 - Node parameters remain internal to the node and are exported to its process
     environment.
-- The runtime does not parse one node output to rebuild the next node CLI.
+- Atomic commands receive `KC_FLOW_FILE`, `KC_FLOW_DIR`,
+    `KC_FLOW_FD_IN`, `KC_FLOW_FD_OUT`, and `KC_FLOW_PARAM_*` in their
+    environment.
+- The runtime does not force one child command to use `stdin/stdout`.
 
 Graph validation includes:
 
@@ -127,8 +133,8 @@ Status event examples:
 
 ```text
 event=run.started pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow
-event=node.started pid=1001 kind=node node=child target_kind=flow target_path=/tmp/child.flow
-event=node.finished pid=1001 kind=node node=child target_kind=flow target_path=/tmp/child.flow status=ok
+event=node.started pid=1001 kind=node node=child target_kind=contract target_path=/tmp/child.flow
+event=node.finished pid=1001 kind=node node=child target_kind=contract target_path=/tmp/child.flow status=ok
 event=run.finished pid=1001 kind=flow id=kc.example.parent path=/tmp/parent.flow status=ok
 ```
 
@@ -139,9 +145,10 @@ Execution model:
 1. Parse one `key=value` contract or flow.
 2. Resolve indexed sections for params, inputs, outputs, nodes, and links.
 3. Validate graph references before execution.
-4. Execute ready nodes with raw input plus declared node parameters.
+4. Execute ready nodes with functional FDs plus declared node parameters.
 5. Connect node outputs to downstream inputs through descriptor transport.
-6. Recurse into nested flows as closed execution units.
+6. Start one sub-execution only when one contract command runs `kc-flow`
+    explicitly.
 
 ## Testing
 

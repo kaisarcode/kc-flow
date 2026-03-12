@@ -237,7 +237,7 @@ int main(int argc, char **argv) {
             kc_flow_status_write_run_event(
                 cfg.fd_status,
                 "run.finished",
-                model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+                kc_flow_model_kind_name(&model),
                 model.id,
                 run_path,
                 "error",
@@ -251,30 +251,17 @@ int main(int argc, char **argv) {
         kc_flow_status_write_run_event(
             cfg.fd_status,
             "run.started",
-            model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+            kc_flow_model_kind_name(&model),
             model.id,
             run_path,
             NULL,
             NULL
         );
-        if (model.kind == KC_FLOW_FILE_FLOW) {
-            rc = kc_flow_run_flow(&model, &cfg, &overrides, run_path, error, sizeof(error));
-        } else {
-            rc = kc_flow_run_contract(
-                &model,
-                &overrides,
-                run_path,
-                cfg.fd_in,
-                cfg.fd_out,
-                cfg.fd_status,
-                error,
-                sizeof(error)
-            );
-        }
+        rc = kc_flow_run_model(&model, &cfg, &overrides, run_path, error, sizeof(error));
         kc_flow_status_write_run_event(
             cfg.fd_status,
             "run.finished",
-            model.kind == KC_FLOW_FILE_FLOW ? "flow" : "contract",
+            kc_flow_model_kind_name(&model),
             model.id,
             run_path,
             rc == 0 ? "ok" : "error",

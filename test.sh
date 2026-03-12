@@ -31,6 +31,7 @@ test_setup() {
     ARCH=$(uname -m)
     [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "aarch64" ] || ARCH="arm64-v8a"
     export KC_BIN_EXEC="$APP_ROOT/bin/$ARCH/kc-flow"
+    export KC_FLOW_BIN="$KC_BIN_EXEC"
 
     [ -f "$KC_BIN_EXEC" ] || fail "Binary not found at $KC_BIN_EXEC."
     pass "Environment verified: using $KC_BIN_EXEC"
@@ -57,17 +58,17 @@ test_general() {
     fi
     pass "General: Unknown flag fail-fast verified."
 
-    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --workers 0 >/dev/null 2>&1; then
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/linear.flow" --workers 0 >/dev/null 2>&1; then
         fail "General: Invalid workers value should fail."
     fi
     pass "General: Invalid workers fail-fast verified."
 
-    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --fd-in bad >/dev/null 2>&1; then
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/linear.flow" --fd-in bad >/dev/null 2>&1; then
         fail "General: Invalid fd value should fail."
     fi
     pass "General: Invalid fd fail-fast verified."
 
-    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/example.flow" --fd-status bad >/dev/null 2>&1; then
+    if "$KC_BIN_EXEC" --run "$APP_ROOT/etc/linear.flow" --fd-status bad >/dev/null 2>&1; then
         fail "General: Invalid status fd value should fail."
     fi
     pass "General: Invalid status fd fail-fast verified."
@@ -76,10 +77,23 @@ test_general() {
 # @brief Runs functional flow and contract behavior tests.
 # @return 0 on success.
 test_functional() {
-    EXAMPLE_FILE="$APP_ROOT/etc/example.flow"
+    EXAMPLE_FILE="$APP_ROOT/etc/linear.flow"
     OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE")
-    [ "$OUTPUT" = "hello" ] || fail "Functional: example contract output mismatch."
-    pass "Functional: direct contract output verified."
+    [ "$OUTPUT" = "line:seed:hello" ] || fail "Functional: linear graph output mismatch."
+    pass "Functional: linear graph output verified."
+
+    OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE" --set param.message=kc)
+    [ "$OUTPUT" = "line:seed:kc" ] || fail "Functional: linear graph parameter override failed."
+    pass "Functional: linear graph parameter override verified."
+
+    NEST_FILE="$APP_ROOT/etc/nest.flow"
+    OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE")
+    [ "$OUTPUT" = "child:parent:hello" ] || fail "Functional: nesting graph output mismatch."
+    pass "Functional: nesting graph output verified."
+
+    OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE" --set param.message=kc)
+    [ "$OUTPUT" = "child:parent:kc" ] || fail "Functional: nesting graph parameter override failed."
+    pass "Functional: nesting graph parameter override verified."
 
     INPUT_FILE=$(mktemp)
     trap 'rm -f "$INPUT_FILE"' RETURN
@@ -93,13 +107,12 @@ param.1.type=text
 param.1.default=hello:
 output.1.id=raw
 output.1.type=stream
-runtime.script=printf "%s" "<param.prefix>"; cat
-runtime.workdir=.
+runtime.command={ printf "%s" "$KC_FLOW_PARAM_PREFIX"; cat "/proc/self/fd/$KC_FLOW_FD_IN"; } >"/proc/self/fd/$KC_FLOW_FD_OUT"
 EOF
 
     OUTPUT=$(printf 'world' | "$KC_BIN_EXEC" --run "$INPUT_FILE")
-    [ "$OUTPUT" = "hello:world" ] || fail "Functional: stdin contract transport failed."
-    pass "Functional: stdin contract transport verified."
+    [ "$OUTPUT" = "hello:world" ] || fail "Functional: input-fd contract transport failed."
+    pass "Functional: input-fd contract transport verified."
 
     OUTPUT=$(printf 'world' | "$KC_BIN_EXEC" --run "$INPUT_FILE" --set param.prefix=kc:)
     [ "$OUTPUT" = "kc:world" ] || fail "Functional: parameter override failed."
@@ -108,9 +121,9 @@ EOF
     STATUS_FILE=$(mktemp)
     trap 'rm -f "$INPUT_FILE" "$STATUS_FILE"' RETURN
     exec 5> "$STATUS_FILE"
-    OUTPUT=$("$KC_BIN_EXEC" --run "$EXAMPLE_FILE" --fd-status 5)
+    OUTPUT=$("$KC_BIN_EXEC" --run "$NEST_FILE" --fd-status 5)
     exec 5>&-
-    [ "$OUTPUT" = "hello" ] || fail "Functional: status fd altered contract output."
+    [ "$OUTPUT" = "child:parent:hello" ] || fail "Functional: status fd altered nesting output."
     grep -q 'event=run.started' "$STATUS_FILE" || fail "Functional: run start status missing."
     grep -q 'event=run.finished' "$STATUS_FILE" || fail "Functional: run finish status missing."
     rm -f "$STATUS_FILE"
@@ -140,11 +153,10 @@ input.1.id=raw
 input.1.type=stream
 output.1.id=raw
 output.1.type=stream
-runtime.script=cat
-runtime.workdir=.
+runtime.command=cat "/proc/self/fd/$KC_FLOW_FD_IN" >"/proc/self/fd/$KC_FLOW_FD_OUT"
 EOF
 
-    cat > "$FLOW_TMP_DIR/child.flow" <<'EOF'
+    cat > "$FLOW_TMP_DIR/child-inner.flow" <<'EOF'
 flow.id=kc.example.child
 flow.name=Child
 input.1.id=raw
@@ -157,6 +169,16 @@ link.1.from=input.raw
 link.1.to=node.leaf.in.raw
 link.2.from=node.leaf.out.raw
 link.2.to=output.raw
+EOF
+
+    cat > "$FLOW_TMP_DIR/child.flow" <<'EOF'
+contract.id=kc.example.child-contract
+contract.name=Child Contract
+input.1.id=raw
+input.1.type=stream
+output.1.id=raw
+output.1.type=stream
+runtime.command="${KC_FLOW_BIN:-kc-flow}" --run "$KC_FLOW_DIR/child-inner.flow" --fd-in "$KC_FLOW_FD_IN" --fd-out "$KC_FLOW_FD_OUT"
 EOF
 
     cat > "$FLOW_TMP_DIR/parent.flow" <<'EOF'
@@ -175,8 +197,8 @@ link.2.to=output.raw
 EOF
 
     OUTPUT=$(printf 'hello' | "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow")
-    [ "$OUTPUT" = "hello" ] || fail "Functional: nested flow transport failed."
-    pass "Functional: nested flow transport verified."
+    [ "$OUTPUT" = "hello" ] || fail "Functional: sub-execution transport failed."
+    pass "Functional: sub-execution transport verified."
 
     OUTPUT=$(printf 'hello' | "$KC_BIN_EXEC" --run "$FLOW_TMP_DIR/parent.flow" --workers 2)
     [ "$OUTPUT" = "hello" ] || fail "Functional: workers runtime failed."

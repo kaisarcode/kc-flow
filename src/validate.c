@@ -34,8 +34,8 @@ int kc_flow_validate_model(
         return -1;
     }
     if (model->kind == KC_FLOW_FILE_CONTRACT) {
-        if (model->runtime_script == NULL) {
-            snprintf(error, error_size, "Missing required key: runtime.script");
+        if (model->runtime_command == NULL) {
+            snprintf(error, error_size, "Missing required key: runtime.command");
             return -1;
         }
         return 0;

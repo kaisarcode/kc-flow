@@ -1,0 +1,13 @@
+contract.id=kc.linear.render
+contract.name=Linear Render
+contract.description=Linear graph render contract
+
+input.1.id=raw
+input.1.type=stream
+input.1.label=Raw Input
+
+output.1.id=raw
+output.1.type=stream
+output.1.label=Raw Output
+
+runtime.command={ printf "line:"; cat "/proc/self/fd/$KC_FLOW_FD_IN"; } >"/proc/self/fd/$KC_FLOW_FD_OUT"

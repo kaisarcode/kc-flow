@@ -38,8 +38,7 @@ typedef struct kc_flow_model {
     size_t record_count;
     const char *id;
     const char *name;
-    const char *runtime_script;
-    const char *runtime_workdir;
+    const char *runtime_command;
     kc_flow_index_set params;
     kc_flow_index_set inputs;
     kc_flow_index_set outputs;
@@ -109,6 +108,15 @@ int kc_flow_load_file(
     char *error,
     size_t error_size
 );
+const char *kc_flow_model_kind_name(const kc_flow_model *model);
+int kc_flow_run_model(
+    const kc_flow_model *model,
+    const kc_flow_runtime_cfg *cfg,
+    const kc_flow_overrides *overrides,
+    const char *path,
+    char *error,
+    size_t error_size
+);
 
 int kc_flow_run_contract(
     const kc_flow_model *model,
@@ -124,6 +132,13 @@ char *kc_flow_resolve_template(
     const kc_flow_model *model,
     const kc_flow_overrides *overrides,
     const char *text,
+    char *error,
+    size_t error_size
+);
+int kc_flow_collect_effective_params(
+    const kc_flow_model *model,
+    const kc_flow_overrides *runtime_params,
+    kc_flow_overrides *effective_params,
     char *error,
     size_t error_size
 );

@@ -165,8 +165,7 @@ static int kc_flow_finalize_model(
 ) {
     model->id = kc_flow_model_get(model, "contract.id");
     model->name = kc_flow_model_get(model, "contract.name");
-    model->runtime_script = kc_flow_model_get(model, "runtime.script");
-    model->runtime_workdir = kc_flow_model_get(model, "runtime.workdir");
+    model->runtime_command = kc_flow_model_get(model, "runtime.command");
     if (model->id != NULL) {
         model->kind = KC_FLOW_FILE_CONTRACT;
     } else {

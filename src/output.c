@@ -144,6 +144,77 @@ char *kc_flow_resolve_template(
 }
 
 /**
+ * Collects effective parameters from declared defaults and runtime overrides.
+ * @param model Parsed model.
+ * @param runtime_params Runtime override store.
+ * @param effective_params Output parameter store.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_collect_effective_params(
+    const kc_flow_model *model,
+    const kc_flow_overrides *runtime_params,
+    kc_flow_overrides *effective_params,
+    char *error,
+    size_t error_size
+) {
+    size_t i;
+
+    kc_flow_overrides_init(effective_params);
+    for (i = 0; i < model->params.count; ++i) {
+        const char *param_id;
+        const char *value;
+        char key[128];
+
+        param_id = kc_flow_lookup_indexed_value(
+            model,
+            &model->params,
+            "param.",
+            model->params.values[i],
+            "id"
+        );
+        if (param_id == NULL) {
+            continue;
+        }
+        snprintf(key, sizeof(key), "param.%s", param_id);
+        value = kc_flow_overrides_get(runtime_params, key);
+        if (value == NULL) {
+            value = kc_flow_lookup_indexed_value(
+                model,
+                &model->params,
+                "param.",
+                model->params.values[i],
+                "default"
+            );
+        }
+        if (value == NULL) {
+            continue;
+        }
+        if (kc_flow_overrides_add(effective_params, key, value) != 0) {
+            snprintf(error, error_size, "Unable to collect effective parameters.");
+            kc_flow_overrides_free(effective_params);
+            return -1;
+        }
+    }
+    for (i = 0; i < runtime_params->count; ++i) {
+        if (strncmp(runtime_params->records[i].key, "param.", 6) != 0) {
+            continue;
+        }
+        if (kc_flow_overrides_add(
+                effective_params,
+                runtime_params->records[i].key,
+                runtime_params->records[i].value
+            ) != 0) {
+            snprintf(error, error_size, "Unable to merge runtime parameters.");
+            kc_flow_overrides_free(effective_params);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/**
  * Collects effective node parameters from runtime and node-local definitions.
  * @param model Parent model.
  * @param node_record Numeric node record id.
@@ -164,20 +235,8 @@ int kc_flow_collect_node_params(
     size_t i;
     char prefix[64];
 
-    kc_flow_overrides_init(node_params);
-    for (i = 0; i < runtime_params->count; ++i) {
-        if (strncmp(runtime_params->records[i].key, "param.", 6) != 0) {
-            continue;
-        }
-        if (kc_flow_overrides_add(
-                node_params,
-                runtime_params->records[i].key,
-                runtime_params->records[i].value
-            ) != 0) {
-            snprintf(error, error_size, "Unable to seed node parameters.");
-            kc_flow_overrides_free(node_params);
-            return -1;
-        }
+    if (kc_flow_collect_effective_params(model, runtime_params, node_params, error, error_size) != 0) {
+        return -1;
     }
     snprintf(prefix, sizeof(prefix), "node.%d.param.", node_record);
     for (i = 0; i < model->record_count; ++i) {

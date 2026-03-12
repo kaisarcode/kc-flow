@@ -58,20 +58,45 @@ static int kc_flow_platform_set_env(const char *key, const char *value) {
 }
 
 /**
- * Exports runtime descriptors and node parameters.
+ * Exports one runtime path variable.
+ * @param key Environment key.
+ * @param value Path value.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_platform_set_path_env(const char *key, const char *value) {
+    if (value == NULL || value[0] == '\0') {
+        return 0;
+    }
+    return kc_flow_platform_set_env(key, value);
+}
+
+/**
+ * Exports runtime descriptors, runtime paths, and node parameters.
+ * @param cfg_path Source file path.
  * @param overrides Effective node parameters.
  * @param fd_in Runtime input descriptor.
  * @param fd_out Runtime output descriptor.
  * @return int 0 on success; non-zero on failure.
  */
 static int kc_flow_platform_export_env(
+    const char *cfg_path,
     const struct kc_flow_overrides *overrides,
     int fd_in,
     int fd_out
 ) {
     size_t i;
     char value[32];
+    char dir[KC_FLOW_MAX_PATH];
 
+    if (kc_flow_platform_set_path_env("KC_FLOW_FILE", cfg_path) != 0) {
+        return -1;
+    }
+    if (cfg_path != NULL && cfg_path[0] != '\0') {
+        kc_flow_dirname(cfg_path, dir, sizeof(dir));
+        if (kc_flow_platform_set_path_env("KC_FLOW_DIR", dir) != 0) {
+            return -1;
+        }
+    }
     if (fd_in >= 0) {
         snprintf(value, sizeof(value), "%d", fd_in);
         if (kc_flow_platform_set_env("KC_FLOW_FD_IN", value) != 0) {
@@ -107,8 +132,7 @@ static int kc_flow_platform_export_env(
 
 /**
  * Runs one atomic contract command.
- * @param workdir Runtime working directory.
- * @param script Resolved shell script.
+ * @param command Resolved shell command.
  * @param overrides Effective node parameters.
  * @param fd_in Runtime input descriptor.
  * @param fd_out Runtime output descriptor.
@@ -117,8 +141,8 @@ static int kc_flow_platform_export_env(
  * @return int 0 on success; non-zero on failure.
  */
 int kc_flow_platform_run_contract(
-    const char *workdir,
-    const char *script,
+    const char *cfg_path,
+    const char *command,
     const struct kc_flow_overrides *overrides,
     int fd_in,
     int fd_out,
@@ -128,11 +152,11 @@ int kc_flow_platform_run_contract(
 #if defined(_WIN32)
     int rc;
 
-    (void)workdir;
+    (void)cfg_path;
     (void)overrides;
     (void)fd_in;
     (void)fd_out;
-    rc = system(script);
+    rc = system(command);
     if (rc != 0) {
         snprintf(error, error_size, "Contract exited with non-zero status.");
         return -1;
@@ -148,28 +172,10 @@ int kc_flow_platform_run_contract(
         return -1;
     }
     if (pid == 0) {
-        int input_fd;
-        int output_fd;
-
-        if (chdir(workdir) != 0) {
+        if (kc_flow_platform_export_env(cfg_path, overrides, fd_in, fd_out) != 0) {
             _exit(127);
         }
-        input_fd = fd_in >= 0 ? fd_in : kc_flow_platform_open_null_fd(0);
-        output_fd = fd_out >= 0 ? fd_out : kc_flow_platform_open_null_fd(1);
-        if (input_fd < 0 || output_fd < 0) {
-            _exit(127);
-        }
-        if (dup2(input_fd, 0) < 0 || dup2(output_fd, 1) < 0) {
-            _exit(127);
-        }
-        if (kc_flow_platform_export_env(
-                overrides,
-                fd_in >= 0 ? 0 : -1,
-                fd_out >= 0 ? 1 : -1
-            ) != 0) {
-            _exit(127);
-        }
-        execl("/bin/sh", "sh", "-lc", script, (char *)NULL);
+        execl("/bin/sh", "sh", "-lc", command, (char *)NULL);
         _exit(127);
     }
     waitpid(pid, &status, 0);
