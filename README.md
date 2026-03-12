@@ -2,13 +2,15 @@
 
 > **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
 
-`kc-flow` executes machine-oriented flow graphs that compose commands through
-one headless runtime.
+`kc-flow` composes arbitrary command executions in graph-based flows driven
+by contract-defined nodes.
 
-This repository is the machine-readable runtime layer. It is not a GUI and
-it is not the human-facing management surface for DAG authoring or runtime
-inspection. Human-oriented management of these DAGs is expected to live in
-separate GUI applications, such as `kc-studio`.
+This repository provides the runtime layer for contract composition,
+descriptor transport, and runtime status emission over those graphs.
+
+> **Note:** `kc-flow` is the machine-readable runtime layer. Human-oriented
+> authoring, management, and inspection of these DAGs live in separate GUI
+> applications, such as `kc-studio`.
 
 ## Definitions
 
