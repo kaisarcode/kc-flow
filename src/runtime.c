@@ -1,6 +1,6 @@
 /**
  * runtime.c
- * Summary: Model validation and composed flow execution.
+ * Summary: Branch list helpers and top-level flow dispatch.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -13,230 +13,109 @@
 #include <string.h>
 
 /**
- * Resolves one model kind name.
- * @param model Parsed model.
- * @return const char* Stable kind name.
+ * Initializes one fd list.
+ * @param list Output list.
+ * @return void
  */
-const char *kc_flow_model_kind_name(const kc_flow_model *model) {
-    return model != NULL && model->kind == KC_FLOW_FILE_FLOW ? "flow" : "contract";
+void kc_flow_fd_list_init(kc_flow_fd_list *list) {
+    memset(list, 0, sizeof(*list));
 }
 
 /**
- * Executes one flow.
- * @param model Parsed model.
- * @param cfg Runtime configuration.
- * @param overrides Runtime parameter overrides.
- * @param path Source path.
- * @param error Error buffer.
- * @param error_size Error buffer size.
+ * Closes and clears one fd list.
+ * @param list Owned list.
+ * @return void
+ */
+void kc_flow_fd_list_free(kc_flow_fd_list *list) {
+    size_t i;
+
+    for (i = 0; i < list->count; ++i) {
+        kc_flow_release_fd(list->values[i]);
+    }
+    kc_flow_fd_list_init(list);
+}
+
+/**
+ * Appends one descriptor to one fd list.
+ * @param list Destination list.
+ * @param fd Descriptor.
  * @return int 0 on success; non-zero on failure.
  */
-int kc_flow_run_flow(
-    const kc_flow_model *model,
-    const kc_flow_runtime_cfg *cfg,
-    const kc_flow_overrides *overrides,
-    const char *path,
-    char *error,
-    size_t error_size
-) {
-    size_t batch_index[KC_FLOW_MAX_INDEXES];
-    int batch_inputs[KC_FLOW_MAX_INDEXES];
-    kc_flow_worker_handle batch_workers[KC_FLOW_MAX_INDEXES];
-    char node_ids[KC_FLOW_MAX_INDEXES][128];
-    unsigned char executed[KC_FLOW_MAX_INDEXES];
-    kc_flow_overrides artifacts;
-    char flow_dir[KC_FLOW_MAX_PATH];
-    size_t node_count;
-    size_t completed;
-    size_t i;
-    size_t worker_limit;
-
-    memset(executed, 0, sizeof(executed));
-    kc_flow_overrides_init(&artifacts);
-    worker_limit = cfg != NULL && cfg->workers > 0 ? cfg->workers : 1;
-#if defined(_WIN32)
-    worker_limit = 1;
-#endif
-    kc_flow_dirname(path, flow_dir, sizeof(flow_dir));
-    if (kc_flow_collect_node_ids(model, node_ids, &node_count, error, error_size) != 0 ||
-            kc_flow_seed_flow_input(model, cfg != NULL ? cfg->fd_in : -1, &artifacts, error, error_size) != 0) {
-        kc_flow_cleanup_artifacts(&artifacts);
-        kc_flow_overrides_free(&artifacts);
+int kc_flow_fd_list_add(kc_flow_fd_list *list, int fd) {
+    if (list->count >= KC_FLOW_MAX_BRANCHES) {
         return -1;
     }
-    completed = 0;
-    while (completed < node_count) {
-        int progressed;
-        size_t batch_count;
-
-        progressed = 0;
-        batch_count = 0;
-        for (i = 0; i < node_count; ++i) {
-            int input_fd;
-            int ready;
-
-            if (executed[i]) {
-                continue;
-            }
-            ready = kc_flow_prepare_node_input(
-                model,
-                &artifacts,
-                node_ids[i],
-                &input_fd,
-                error,
-                error_size
-            );
-            if (ready < 0) {
-                kc_flow_cleanup_artifacts(&artifacts);
-                kc_flow_overrides_free(&artifacts);
-                return -1;
-            }
-            if (ready == 0) {
-                continue;
-            }
-            batch_index[batch_count] = i;
-            batch_inputs[batch_count] = input_fd;
-            batch_count++;
-            if (batch_count >= worker_limit) {
-                break;
-            }
-        }
-        if (batch_count == 0) {
-            kc_flow_cleanup_artifacts(&artifacts);
-            kc_flow_overrides_free(&artifacts);
-            snprintf(error, error_size, "Unable to resolve flow dependencies.");
-            return -1;
-        }
-        if (worker_limit > 1 && batch_count > 1) {
-            size_t j;
-
-            for (j = 0; j < batch_count; ++j) {
-                batch_workers[j].pid = -1;
-                batch_workers[j].output_fd = -1;
-                if (kc_flow_start_flow_node(
-                        model,
-                        cfg,
-                        flow_dir,
-                        node_ids[batch_index[j]],
-                        overrides,
-                        batch_inputs[j],
-                        &batch_workers[j],
-                        error,
-                        error_size
-                    ) != 0) {
-                    size_t k;
-
-                    for (k = 0; k <= j; ++k) {
-                        kc_flow_release_fd(batch_inputs[k]);
-                    }
-                    kc_flow_cleanup_artifacts(&artifacts);
-                    kc_flow_overrides_free(&artifacts);
-                    return -1;
-                }
-                kc_flow_release_fd(batch_inputs[j]);
-            }
-            for (j = 0; j < batch_count; ++j) {
-                int output_fd;
-
-                output_fd = -1;
-                if (kc_flow_finish_flow_node(
-                        &batch_workers[j],
-                        &output_fd,
-                        error,
-                        error_size
-                    ) != 0 ||
-                        kc_flow_publish_node_output(
-                            model,
-                            &artifacts,
-                            node_ids[batch_index[j]],
-                            output_fd,
-                            error,
-                            error_size
-                        ) != 0) {
-                    if (output_fd >= 0) {
-                        kc_flow_release_fd(output_fd);
-                    }
-                    kc_flow_cleanup_artifacts(&artifacts);
-                    kc_flow_overrides_free(&artifacts);
-                    return -1;
-                }
-                executed[batch_index[j]] = 1;
-                completed++;
-                progressed = 1;
-            }
-        } else {
-            size_t j;
-
-            for (j = 0; j < batch_count; ++j) {
-                int output_fd;
-
-                output_fd = -1;
-                if (kc_flow_run_node(
-                        model,
-                        cfg,
-                        flow_dir,
-                        node_ids[batch_index[j]],
-                        overrides,
-                        batch_inputs[j],
-                        &output_fd,
-                        error,
-                        error_size
-                    ) != 0 ||
-                        kc_flow_publish_node_output(
-                            model,
-                            &artifacts,
-                            node_ids[batch_index[j]],
-                            output_fd,
-                            error,
-                            error_size
-                        ) != 0) {
-                    if (batch_inputs[j] >= 0) {
-                        kc_flow_release_fd(batch_inputs[j]);
-                    }
-                    if (output_fd >= 0) {
-                        kc_flow_release_fd(output_fd);
-                    }
-                    kc_flow_cleanup_artifacts(&artifacts);
-                    kc_flow_overrides_free(&artifacts);
-                    return -1;
-                }
-                if (batch_inputs[j] >= 0) {
-                    kc_flow_release_fd(batch_inputs[j]);
-                }
-                executed[batch_index[j]] = 1;
-                completed++;
-                progressed = 1;
-            }
-        }
-        if (!progressed) {
-            kc_flow_cleanup_artifacts(&artifacts);
-            kc_flow_overrides_free(&artifacts);
-            snprintf(error, error_size, "Unable to resolve flow dependencies.");
-            return -1;
-        }
-    }
-    if (kc_flow_flush_flow_output(
-            model,
-            &artifacts,
-            cfg != NULL ? cfg->fd_out : -1,
-            error,
-            error_size
-        ) != 0) {
-        kc_flow_cleanup_artifacts(&artifacts);
-        kc_flow_overrides_free(&artifacts);
-        return -1;
-    }
-    kc_flow_cleanup_artifacts(&artifacts);
-    kc_flow_overrides_free(&artifacts);
+    list->values[list->count++] = fd;
     return 0;
 }
 
 /**
- * Executes one loaded model.
+ * Moves descriptors from one list into another.
+ * @param dst Destination list.
+ * @param src Source list.
+ * @return int 0 on success; non-zero on failure.
+ */
+int kc_flow_fd_list_append(kc_flow_fd_list *dst, kc_flow_fd_list *src) {
+    size_t i;
+
+    for (i = 0; i < src->count; ++i) {
+        if (kc_flow_fd_list_add(dst, src->values[i]) != 0) {
+            return -1;
+        }
+    }
+    src->count = 0;
+    return 0;
+}
+
+/**
+ * Flushes one list of terminal branch outputs.
+ * @param outputs Terminal outputs.
+ * @param fd_out Runtime output descriptor.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_flush_outputs(
+    kc_flow_fd_list *outputs,
+    int fd_out,
+    char *error,
+    size_t error_size
+) {
+    size_t i;
+
+    for (i = 0; i < outputs->count; ++i) {
+        if (outputs->values[i] < 0) {
+            continue;
+        }
+        if (kc_flow_platform_rewind_fd(outputs->values[i]) != 0 ||
+                kc_flow_copy_artifact_fd(outputs->values[i], fd_out) != 0) {
+            snprintf(error, error_size, "Unable to flush branch output.");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * Duplicates one optional input descriptor for an entry branch.
+ * @param fd Input descriptor.
+ * @param error Error buffer.
+ * @param error_size Error buffer size.
+ * @return int Descriptor or -1.
+ */
+static int kc_flow_branch_dup_input(int fd, char *error, size_t error_size) {
+    if (fd < 0) {
+        return -1;
+    }
+    return kc_flow_dup_artifact_fd(fd, error, error_size);
+}
+
+/**
+ * Runs one parsed flow model.
  * @param model Parsed model.
  * @param cfg Runtime configuration.
- * @param overrides Runtime parameter overrides.
- * @param path Source path.
+ * @param flow_params Runtime flow overrides.
+ * @param path Flow source path.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
@@ -244,22 +123,69 @@ int kc_flow_run_flow(
 int kc_flow_run_model(
     const kc_flow_model *model,
     const kc_flow_runtime_cfg *cfg,
-    const kc_flow_overrides *overrides,
+    const kc_flow_overrides *flow_params,
     const char *path,
     char *error,
     size_t error_size
 ) {
-    if (model->kind == KC_FLOW_FILE_FLOW) {
-        return kc_flow_run_flow(model, cfg, overrides, path, error, error_size);
+    kc_flow_overrides effective_flow_params;
+    kc_flow_fd_list outputs;
+    size_t i;
+    int rc;
+
+    kc_flow_overrides_init(&effective_flow_params);
+    kc_flow_fd_list_init(&outputs);
+    if (kc_flow_overrides_copy(&effective_flow_params, &model->params) != 0) {
+        snprintf(error, error_size, "Unable to copy flow parameters.");
+        return -1;
     }
-    return kc_flow_run_contract(
-        model,
-        overrides,
-        path,
-        cfg != NULL ? cfg->fd_in : -1,
-        cfg != NULL ? cfg->fd_out : -1,
-        cfg != NULL ? cfg->fd_status : -1,
-        error,
-        error_size
-    );
+    for (i = 0; flow_params != NULL && i < flow_params->count; ++i) {
+        if (kc_flow_overrides_add(
+                &effective_flow_params,
+                flow_params->records[i].key,
+                flow_params->records[i].value
+            ) != 0) {
+            kc_flow_overrides_free(&effective_flow_params);
+            snprintf(error, error_size, "Unable to merge flow parameters.");
+            return -1;
+        }
+    }
+    rc = 0;
+    for (i = 0; i < model->entry_links.count; ++i) {
+        const kc_flow_node *entry;
+        int branch_fd;
+
+        entry = kc_flow_model_find_node(model, model->entry_links.values[i]);
+        if (entry == NULL) {
+            kc_flow_overrides_free(&effective_flow_params);
+            snprintf(error, error_size, "Unknown flow link: %s", model->entry_links.values[i]);
+            return -1;
+        }
+        branch_fd = kc_flow_branch_dup_input(cfg != NULL ? cfg->fd_in : -1, error, error_size);
+        if ((cfg != NULL ? cfg->fd_in : -1) >= 0 && branch_fd < 0) {
+            kc_flow_overrides_free(&effective_flow_params);
+            return -1;
+        }
+        if (kc_flow_run_node(
+                model,
+                cfg,
+                &effective_flow_params,
+                path,
+                entry,
+                branch_fd,
+                &outputs,
+                error,
+                error_size
+            ) != 0) {
+            kc_flow_release_fd(branch_fd);
+            rc = -1;
+            break;
+        }
+    }
+    if (rc == 0 && cfg != NULL && cfg->fd_out >= 0) {
+        rc = kc_flow_flush_outputs(&outputs, cfg->fd_out, error, error_size);
+    }
+    kc_flow_fd_list_free(&outputs);
+    kc_flow_overrides_free(&effective_flow_params);
+    return rc;
 }

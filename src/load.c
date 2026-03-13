@@ -1,6 +1,6 @@
 /**
  * load.c
- * Summary: Key-value flow loading and section indexing.
+ * Summary: Flat flow file parsing into the in-memory branch model.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -18,7 +18,7 @@
 /**
  * Duplicates one string.
  * @param text Source text.
- * @return char* Heap copy on success; NULL on failure.
+ * @return char* Heap copy or NULL.
  */
 static char *kc_flow_strdup(const char *text) {
     size_t len;
@@ -38,8 +38,8 @@ static char *kc_flow_strdup(const char *text) {
 
 /**
  * Trims one line in place.
- * @param text Input text.
- * @return char* Trimmed text pointer.
+ * @param text Mutable text buffer.
+ * @return char* Trimmed text.
  */
 static char *kc_flow_trim(char *text) {
     char *end;
@@ -57,11 +57,11 @@ static char *kc_flow_trim(char *text) {
 }
 
 /**
- * Reads one logical line from one file.
- * @param fp Source file.
- * @param line Output buffer pointer.
- * @param capacity Output buffer capacity.
- * @return int 1 when one line was read; otherwise 0.
+ * Reads one logical line.
+ * @param fp Open input file.
+ * @param line Output line buffer.
+ * @param capacity Output line capacity.
+ * @return int 1 on success; otherwise 0.
  */
 static int kc_flow_read_line(FILE *fp, char **line, size_t *capacity) {
     size_t length;
@@ -102,108 +102,117 @@ static int kc_flow_read_line(FILE *fp, char **line, size_t *capacity) {
 }
 
 /**
- * Collects one indexed section into an index set.
+ * Looks up one mutable node by local reference.
  * @param model Parsed model.
- * @param prefix Section prefix.
- * @param out Output set.
- * @return int 0 on success; non-zero on failure.
+ * @param ref Node reference.
+ * @return kc_flow_node* Node or NULL.
  */
-static int kc_flow_collect_section(
-    const kc_flow_model *model,
-    const char *prefix,
-    kc_flow_index_set *out
-) {
+static kc_flow_node *kc_flow_model_find_node_mut(kc_flow_model *model, const char *ref) {
     size_t i;
-    size_t prefix_len;
 
-    memset(out, 0, sizeof(*out));
-    prefix_len = strlen(prefix);
-    for (i = 0; i < model->record_count; ++i) {
-        int index;
-        const char *cursor;
-        char *endptr;
-        size_t j;
-
-        if (strncmp(model->records[i].key, prefix, prefix_len) != 0) {
-            continue;
+    for (i = 0; i < model->node_count; ++i) {
+        if (strcmp(model->nodes[i].ref, ref) == 0) {
+            return &model->nodes[i];
         }
-        cursor = model->records[i].key + prefix_len;
-        if (*cursor < '0' || *cursor > '9') {
-            continue;
-        }
-        index = (int)strtol(cursor, &endptr, 10);
-        if (endptr == cursor || *endptr != '.') {
-            continue;
-        }
-        for (j = 0; j < out->count; ++j) {
-            if (out->values[j] == index) {
-                break;
-            }
-        }
-        if (j < out->count) {
-            continue;
-        }
-        if (out->count >= KC_FLOW_MAX_INDEXES) {
-            return -1;
-        }
-        out->values[out->count++] = index;
     }
-    return 0;
+    return NULL;
 }
 
 /**
- * Resolves model kind and known sections.
- * @param model Output model.
+ * Resolves or creates one node reference.
+ * @param model Parsed model.
+ * @param ref Node reference.
+ * @return kc_flow_node* Node or NULL.
+ */
+static kc_flow_node *kc_flow_model_ensure_node(kc_flow_model *model, const char *ref) {
+    kc_flow_node *node;
+
+    node = kc_flow_model_find_node_mut(model, ref);
+    if (node != NULL) {
+        return node;
+    }
+    if (model->node_count >= KC_FLOW_MAX_NODES) {
+        return NULL;
+    }
+    node = &model->nodes[model->node_count++];
+    memset(node, 0, sizeof(*node));
+    node->ref = kc_flow_strdup(ref);
+    if (node->ref == NULL) {
+        return NULL;
+    }
+    return node;
+}
+
+/**
+ * Parses one node-scoped field.
+ * @param model Parsed model.
+ * @param key Full source key.
+ * @param value Source value.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
  */
-static int kc_flow_finalize_model(
+static int kc_flow_parse_node_field(
     kc_flow_model *model,
+    const char *key,
+    const char *value,
     char *error,
     size_t error_size
 ) {
-    model->id = kc_flow_model_get(model, "contract.id");
-    model->name = kc_flow_model_get(model, "contract.name");
-    model->runtime_command = kc_flow_model_get(model, "runtime.command");
-    if (model->id != NULL) {
-        model->kind = KC_FLOW_FILE_CONTRACT;
-    } else {
-        model->id = kc_flow_model_get(model, "flow.id");
-        model->name = kc_flow_model_get(model, "flow.name");
-        if (model->id != NULL) {
-            model->kind = KC_FLOW_FILE_FLOW;
-        }
-    }
-    if (model->kind == KC_FLOW_FILE_NONE) {
-        snprintf(error, error_size, "Unable to determine file kind.");
+    const char *cursor;
+    const char *field;
+    size_t ref_len;
+    char ref[128];
+    kc_flow_node *node;
+
+    cursor = key + 5;
+    field = strchr(cursor, '.');
+    if (field == NULL || field == cursor) {
+        snprintf(error, error_size, "Invalid node record: %s", key);
         return -1;
     }
-    if (kc_flow_collect_section(model, "param.", &model->params) != 0 ||
-            kc_flow_collect_section(model, "input.", &model->inputs) != 0 ||
-            kc_flow_collect_section(model, "output.", &model->outputs) != 0 ||
-            kc_flow_collect_section(model, "node.", &model->nodes) != 0 ||
-            kc_flow_collect_section(model, "link.", &model->links) != 0) {
-        snprintf(error, error_size, "Too many indexed records.");
+    ref_len = (size_t)(field - cursor);
+    if (ref_len >= sizeof(ref)) {
+        snprintf(error, error_size, "Node reference too long.");
         return -1;
     }
-    return 0;
+    memcpy(ref, cursor, ref_len);
+    ref[ref_len] = '\0';
+    node = kc_flow_model_ensure_node(model, ref);
+    if (node == NULL) {
+        snprintf(error, error_size, "Unable to allocate node: %s", ref);
+        return -1;
+    }
+    field++;
+    if (strcmp(field, "file") == 0) {
+        free(node->file);
+        node->file = kc_flow_strdup(value);
+        return node->file != NULL ? 0 : -1;
+    }
+    if (strcmp(field, "exec") == 0) {
+        free(node->exec);
+        node->exec = kc_flow_strdup(value);
+        return node->exec != NULL ? 0 : -1;
+    }
+    if (strcmp(field, "link") == 0) {
+        return kc_flow_strings_add(&node->links, value);
+    }
+    if (strncmp(field, "param.", 6) == 0) {
+        return kc_flow_overrides_add(&node->params, field + 6, value);
+    }
+    snprintf(error, error_size, "Unknown node field: %s", key);
+    return -1;
 }
 
 /**
- * Loads one flow or contract file.
+ * Loads one flow file.
  * @param path Source file path.
  * @param model Output model.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
  */
-int kc_flow_load_file(
-    const char *path,
-    kc_flow_model *model,
-    char *error,
-    size_t error_size
-) {
+int kc_flow_load_file(const char *path, kc_flow_model *model, char *error, size_t error_size) {
     FILE *fp;
     char *line;
     size_t capacity;
@@ -236,26 +245,54 @@ int kc_flow_load_file(
         *equals = '\0';
         value = kc_flow_trim(equals + 1);
         key = kc_flow_trim(key);
-        if (model->record_count >= KC_FLOW_MAX_RECORDS) {
-            free(line);
-            fclose(fp);
-            kc_flow_model_free(model);
-            snprintf(error, error_size, "Too many records.");
-            return -1;
+        if (strcmp(key, "flow.id") == 0) {
+            free(model->id);
+            model->id = kc_flow_strdup(value);
+            if (model->id == NULL) {
+                free(line);
+                fclose(fp);
+                kc_flow_model_free(model);
+                snprintf(error, error_size, "Out of memory while storing flow id.");
+                return -1;
+            }
+            continue;
         }
-        model->records[model->record_count].key = kc_flow_strdup(key);
-        model->records[model->record_count].value = kc_flow_strdup(value);
-        if (model->records[model->record_count].key == NULL ||
-                model->records[model->record_count].value == NULL) {
-            free(line);
-            fclose(fp);
-            kc_flow_model_free(model);
-            snprintf(error, error_size, "Out of memory while loading file.");
-            return -1;
+        if (strcmp(key, "flow.link") == 0) {
+            if (kc_flow_strings_add(&model->entry_links, value) != 0) {
+                free(line);
+                fclose(fp);
+                kc_flow_model_free(model);
+                snprintf(error, error_size, "Too many flow links.");
+                return -1;
+            }
+            continue;
         }
-        model->record_count++;
+        if (strncmp(key, "flow.param.", 11) == 0) {
+            if (kc_flow_overrides_add(&model->params, key + 11, value) != 0) {
+                free(line);
+                fclose(fp);
+                kc_flow_model_free(model);
+                snprintf(error, error_size, "Unable to store flow parameter.");
+                return -1;
+            }
+            continue;
+        }
+        if (strncmp(key, "node.", 5) == 0) {
+            if (kc_flow_parse_node_field(model, key, value, error, error_size) != 0) {
+                free(line);
+                fclose(fp);
+                kc_flow_model_free(model);
+                return -1;
+            }
+            continue;
+        }
+        free(line);
+        fclose(fp);
+        kc_flow_model_free(model);
+        snprintf(error, error_size, "Unknown record: %s", key);
+        return -1;
     }
     free(line);
     fclose(fp);
-    return kc_flow_finalize_model(model, error, error_size);
+    return kc_flow_validate_model(model, error, error_size);
 }

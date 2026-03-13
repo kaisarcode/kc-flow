@@ -1,6 +1,6 @@
 /**
  * compat-process.c
- * Summary: Contract process platform primitives for kc-flow.
+ * Summary: Process launch and environment binding for kc-flow node execs.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -24,17 +24,13 @@
 #if !defined(_WIN32)
 
 /**
- * Normalizes one parameter id into one environment suffix.
+ * Normalizes one parameter key into an environment suffix.
  * @param text Source text.
  * @param buffer Output buffer.
  * @param size Output buffer size.
  * @return void
  */
-static void kc_flow_platform_param_env_name(
-    const char *text,
-    char *buffer,
-    size_t size
-) {
+static void kc_flow_platform_param_env_name(const char *text, char *buffer, size_t size) {
     size_t i;
 
     for (i = 0; i + 1 < size && text[i] != '\0'; ++i) {
@@ -58,42 +54,55 @@ static int kc_flow_platform_set_env(const char *key, const char *value) {
 }
 
 /**
- * Exports one runtime path variable.
- * @param key Environment key.
- * @param value Path value.
+ * Exports one scoped parameter family.
+ * @param prefix Environment prefix.
+ * @param params Parameter store.
  * @return int 0 on success; non-zero on failure.
  */
-static int kc_flow_platform_set_path_env(const char *key, const char *value) {
-    if (value == NULL || value[0] == '\0') {
-        return 0;
+static int kc_flow_platform_export_params(
+    const char *prefix,
+    const struct kc_flow_overrides *params
+) {
+    size_t i;
+
+    for (i = 0; i < params->count; ++i) {
+        char key[192];
+        char suffix[128];
+
+        kc_flow_platform_param_env_name(params->records[i].key, suffix, sizeof(suffix));
+        snprintf(key, sizeof(key), "%s%s", prefix, suffix);
+        if (kc_flow_platform_set_env(key, params->records[i].value) != 0) {
+            return -1;
+        }
     }
-    return kc_flow_platform_set_env(key, value);
+    return 0;
 }
 
 /**
- * Exports runtime descriptors, runtime paths, and node parameters.
- * @param cfg_path Source file path.
- * @param overrides Effective node parameters.
+ * Exports runtime paths, descriptors, and scope params.
+ * @param flow_path Current flow path.
+ * @param flow_params Current flow params.
+ * @param node_params Current node params.
  * @param fd_in Runtime input descriptor.
  * @param fd_out Runtime output descriptor.
  * @return int 0 on success; non-zero on failure.
  */
 static int kc_flow_platform_export_env(
-    const char *cfg_path,
-    const struct kc_flow_overrides *overrides,
+    const char *flow_path,
+    const struct kc_flow_overrides *flow_params,
+    const struct kc_flow_overrides *node_params,
     int fd_in,
     int fd_out
 ) {
-    size_t i;
     char value[32];
     char dir[KC_FLOW_MAX_PATH];
 
-    if (kc_flow_platform_set_path_env("KC_FLOW_FILE", cfg_path) != 0) {
-        return -1;
-    }
-    if (cfg_path != NULL && cfg_path[0] != '\0') {
-        kc_flow_dirname(cfg_path, dir, sizeof(dir));
-        if (kc_flow_platform_set_path_env("KC_FLOW_DIR", dir) != 0) {
+    if (flow_path != NULL && flow_path[0] != '\0') {
+        if (kc_flow_platform_set_env("KC_FLOW_FILE", flow_path) != 0) {
+            return -1;
+        }
+        kc_flow_dirname(flow_path, dir, sizeof(dir));
+        if (kc_flow_platform_set_env("KC_FLOW_DIR", dir) != 0) {
             return -1;
         }
     }
@@ -109,41 +118,32 @@ static int kc_flow_platform_export_env(
             return -1;
         }
     }
-    for (i = 0; i < overrides->count; ++i) {
-        char key[160];
-        char suffix[128];
-
-        if (strncmp(overrides->records[i].key, "param.", 6) != 0) {
-            continue;
-        }
-        kc_flow_platform_param_env_name(
-            overrides->records[i].key + 6,
-            suffix,
-            sizeof(suffix)
-        );
-        snprintf(key, sizeof(key), "KC_FLOW_PARAM_%s", suffix);
-        if (kc_flow_platform_set_env(key, overrides->records[i].value) != 0) {
-            return -1;
-        }
+    if (kc_flow_platform_export_params("KC_FLOW_FLOW_PARAM_", flow_params) != 0 ||
+            kc_flow_platform_export_params("KC_FLOW_NODE_PARAM_", node_params) != 0 ||
+            kc_flow_platform_export_params("KC_FLOW_PARAM_", node_params) != 0) {
+        return -1;
     }
     return 0;
 }
 #endif
 
 /**
- * Runs one atomic contract command.
+ * Runs one resolved node exec command.
+ * @param flow_path Current flow path.
  * @param command Resolved shell command.
- * @param overrides Effective node parameters.
+ * @param flow_params Current flow params.
+ * @param node_params Current node params.
  * @param fd_in Runtime input descriptor.
  * @param fd_out Runtime output descriptor.
  * @param error Error buffer.
  * @param error_size Error buffer size.
  * @return int 0 on success; non-zero on failure.
  */
-int kc_flow_platform_run_contract(
-    const char *cfg_path,
+int kc_flow_platform_run_command(
+    const char *flow_path,
     const char *command,
-    const struct kc_flow_overrides *overrides,
+    const struct kc_flow_overrides *flow_params,
+    const struct kc_flow_overrides *node_params,
     int fd_in,
     int fd_out,
     char *error,
@@ -152,13 +152,14 @@ int kc_flow_platform_run_contract(
 #if defined(_WIN32)
     int rc;
 
-    (void)cfg_path;
-    (void)overrides;
+    (void)flow_path;
+    (void)flow_params;
+    (void)node_params;
     (void)fd_in;
     (void)fd_out;
     rc = system(command);
     if (rc != 0) {
-        snprintf(error, error_size, "Contract exited with non-zero status.");
+        snprintf(error, error_size, "Exec exited with non-zero status.");
         return -1;
     }
     return 0;
@@ -172,7 +173,7 @@ int kc_flow_platform_run_contract(
         return -1;
     }
     if (pid == 0) {
-        if (kc_flow_platform_export_env(cfg_path, overrides, fd_in, fd_out) != 0) {
+        if (kc_flow_platform_export_env(flow_path, flow_params, node_params, fd_in, fd_out) != 0) {
             _exit(127);
         }
         execl("/bin/sh", "sh", "-lc", command, (char *)NULL);
@@ -180,7 +181,7 @@ int kc_flow_platform_run_contract(
     }
     waitpid(pid, &status, 0);
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        snprintf(error, error_size, "Contract exited with non-zero status.");
+        snprintf(error, error_size, "Exec exited with non-zero status.");
         return -1;
     }
     return 0;

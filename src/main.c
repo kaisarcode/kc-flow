@@ -1,6 +1,6 @@
 /**
  * main.c
- * Summary: CLI entrypoint for headless flow execution.
+ * Summary: CLI entrypoint for kc-flow branch runtime.
  *
  * Author:  KaisarCode
  * Website: https://kaisarcode.com
@@ -9,6 +9,7 @@
 
 #include "flow.h"
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #if defined(_WIN32)
@@ -91,23 +92,53 @@ static int kc_flow_parse_fd(const char *text, int *fd) {
 }
 
 /**
+ * Normalizes one CLI override key into flow scope.
+ * @param source Source key text.
+ * @param target Output key buffer.
+ * @param size Output key size.
+ * @return int 0 on success; non-zero on failure.
+ */
+static int kc_flow_cli_override_key(const char *source, char *target, size_t size) {
+    char buffer[256];
+
+    if (strncmp(source, "flow.param.", 11) == 0) {
+        if (snprintf(buffer, sizeof(buffer), "%s", source + 11) >= (int)sizeof(buffer)) {
+            return -1;
+        }
+    } else if (strncmp(source, "param.", 6) == 0) {
+        if (snprintf(buffer, sizeof(buffer), "%s", source + 6) >= (int)sizeof(buffer)) {
+            return -1;
+        }
+    } else if (snprintf(buffer, sizeof(buffer), "%s", source) >= (int)sizeof(buffer)) {
+        return -1;
+    }
+    if (snprintf(target, size, "%s", buffer) >= (int)size) {
+        return -1;
+    }
+    return 0;
+}
+
+/**
  * Prints command help.
  * @param bin Executable name.
  * @return void
  */
 static void kc_flow_help(const char *bin) {
-    printf("Options:\n");
-    printf("  --run <file>      Execute one flow file\n");
-    printf("  --set key=value   Inject one input or param override\n");
-    printf("  --workers <n>     Runtime worker process count\n");
-    printf("  --fd-in <n>       Runtime input descriptor\n");
-    printf("  --fd-out <n>      Runtime output descriptor\n");
-    printf("  --fd-status <n>   Runtime status descriptor\n");
-    printf("  --help            Show help\n");
-    printf("\n");
-    printf("Examples:\n");
-    printf("  %s --run /path/to/file.flow\n", bin);
-    printf("  %s --run /path/to/file.flow --set input.user_text=hello\n", bin);
+    printf(
+        "Options:\n"
+        "  --run <file>      Execute one flow file\n"
+        "  --set key=value   Inject one flow.param override\n"
+        "  --workers <n>     Runtime worker count hint\n"
+        "  --fd-in <n>       Runtime input descriptor\n"
+        "  --fd-out <n>      Runtime output descriptor\n"
+        "  --fd-status <n>   Runtime status descriptor\n"
+        "  --help            Show help\n\n"
+        "Examples:\n"
+        "  %s --run /path/to/file.flow\n"
+        "  %s --run /path/to/file.flow --set flow.param.hello=Hello\n",
+        bin,
+        bin
+    );
 }
 
 /**
@@ -135,22 +166,20 @@ int main(int argc, char **argv) {
     char error[256];
     int i;
 
-    kc_flow_overrides_init(&overrides);
-    cfg.workers = kc_flow_default_workers();
-    cfg.fd_in = 0;
-    cfg.fd_out = 1;
-    cfg.fd_status = -1;
-    run_path = NULL;
     if (argc <= 1) {
         kc_flow_help(argv[0]);
         return 0;
     }
     for (i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--help") == 0) {
-            kc_flow_help(argv[0]);
-            kc_flow_overrides_free(&overrides);
-            return 0;
-        }
+        if (strcmp(argv[i], "--help") == 0) { kc_flow_help(argv[0]); return 0; }
+    }
+    kc_flow_overrides_init(&overrides);
+    cfg.workers = kc_flow_default_workers();
+    cfg.fd_in = -1;
+    cfg.fd_out = 1;
+    cfg.fd_status = -1;
+    run_path = NULL;
+    for (i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--run") == 0) {
             if (i + 1 >= argc) {
                 kc_flow_overrides_free(&overrides);
@@ -182,7 +211,8 @@ int main(int argc, char **argv) {
             }
             memcpy(key, assignment, key_len);
             key[key_len] = '\0';
-            if (kc_flow_overrides_add(&overrides, key, equals + 1) != 0) {
+            if (kc_flow_cli_override_key(key, key, sizeof(key)) != 0 ||
+                    kc_flow_overrides_add(&overrides, key, equals + 1) != 0) {
                 kc_flow_overrides_free(&overrides);
                 return kc_flow_fail(argv[0], "Unable to register override.");
             }
@@ -224,53 +254,41 @@ int main(int argc, char **argv) {
         return kc_flow_fail(argv[0], "Missing --run.");
     }
     {
-        kc_flow_model model;
+        kc_flow_model *model;
         int rc;
 
-        kc_flow_model_init(&model);
-        if (!kc_flow_file_exists(run_path)) {
+        if ((model = malloc(sizeof(*model))) == NULL) {
             kc_flow_overrides_free(&overrides);
-            return kc_flow_fail(argv[0], "contract or flow file not found.");
+            return kc_flow_fail(argv[0], "Out of memory.");
         }
-        if (kc_flow_load_file(run_path, &model, error, sizeof(error)) != 0 ||
-                kc_flow_validate_model(&model, error, sizeof(error)) != 0) {
+        kc_flow_model_init(model);
+        if (!kc_flow_file_exists(run_path)) {
+            free(model);
+            kc_flow_overrides_free(&overrides);
+            return kc_flow_fail(argv[0], "flow file not found.");
+        }
+        if (kc_flow_load_file(run_path, model, error, sizeof(error)) != 0) {
             kc_flow_status_write_run_event(
                 cfg.fd_status,
                 "run.finished",
-                kc_flow_model_kind_name(&model),
-                model.id,
+                "flow",
+                NULL,
                 run_path,
                 "error",
                 error
             );
             fprintf(stderr, "Error: %s\n", error);
-            kc_flow_model_free(&model);
+            kc_flow_model_free(model);
+            free(model);
             kc_flow_overrides_free(&overrides);
             return 1;
         }
-        kc_flow_status_write_run_event(
-            cfg.fd_status,
-            "run.started",
-            kc_flow_model_kind_name(&model),
-            model.id,
-            run_path,
-            NULL,
-            NULL
-        );
-        rc = kc_flow_run_model(&model, &cfg, &overrides, run_path, error, sizeof(error));
-        kc_flow_status_write_run_event(
-            cfg.fd_status,
-            "run.finished",
-            kc_flow_model_kind_name(&model),
-            model.id,
-            run_path,
-            rc == 0 ? "ok" : "error",
-            rc == 0 ? NULL : error
-        );
-        if (rc != 0) {
-            fprintf(stderr, "Error: %s\n", error);
-        }
-        kc_flow_model_free(&model);
+        kc_flow_status_write_run_event(cfg.fd_status, "run.started", "flow", model->id, run_path, NULL, NULL);
+        rc = kc_flow_run_model(model, &cfg, &overrides, run_path, error, sizeof(error));
+        kc_flow_status_write_run_event(cfg.fd_status, "run.finished", "flow", model->id, run_path, rc == 0 ? "ok" : "error", rc == 0 ? NULL : error);
+        if (rc != 0) { fprintf(stderr, "Error: %s\n", error); }
+        kc_flow_model_free(model);
+        free(model);
         kc_flow_overrides_free(&overrides);
         return rc == 0 ? 0 : 1;
     }
