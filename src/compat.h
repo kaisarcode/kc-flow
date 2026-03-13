@@ -21,10 +21,11 @@ int kc_flow_platform_dup_fd(int fd);
 void kc_flow_platform_close_fd(int fd);
 int kc_flow_platform_open_null_fd(int write_mode);
 int kc_flow_platform_create_artifact_fd(char *error, size_t error_size);
-int kc_flow_platform_run_contract(
-    const char *cfg_path,
+int kc_flow_platform_run_command(
+    const char *flow_path,
     const char *command,
-    const struct kc_flow_overrides *overrides,
+    const struct kc_flow_overrides *flow_params,
+    const struct kc_flow_overrides *node_params,
     int fd_in,
     int fd_out,
     char *error,

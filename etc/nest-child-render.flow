@@ -1,8 +1,0 @@
-contract.id=kc.nest.child-render
-
-param.1.id=message
-param.1.default=hello
-
-output.1.id=raw
-
-runtime.command=printf "child:%s" "$KC_FLOW_PARAM_MESSAGE" >"/proc/self/fd/$KC_FLOW_FD_OUT"

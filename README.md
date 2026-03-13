@@ -1,91 +1,84 @@
-# kc-flow - Graph Runtime Engine
+# kc-flow - Branch Runtime Engine
 
-> **Note:** This application is in the development and testing phase, is not ready for production use, and may change without prior notice.
+> **Note:** This application is in the development and testing phase, is not
+> ready for production use, and may change without prior notice.
 
-`kc-flow` composes arbitrary command executions in graph-based flows driven
-by contract-defined nodes.
+`kc-flow` executes discrete execution branches described with flat
+`key=value` flow files.
 
-This repository provides the runtime layer for contract composition,
-descriptor transport, and runtime status emission over those graphs.
+It is not a visual graph editor and it is not a contract/port runtime.
+Its model is branch-oriented:
 
-> **Note:** `kc-flow` is the machine-readable runtime layer. Human-oriented
-> authoring, management, and inspection of these DAGs live in separate GUI
-> applications, such as `kc-studio`.
+- one flow declares entry branches
+- one node may execute one command
+- one node may expand one child flow
+- one node may open one or more next branches
+- branches stay independent and do not merge
 
 ## Definitions
 
-- **Flow**: executable DAG unit that may run directly.
-- **Contract**: atomic node definition described with `key=value` records.
+- **Flow**: one executable document that declares flow params, entry links,
+    and local node definitions.
+- **Node**: one branch step inside one flow.
+- **Branch**: one execution path that moves through nodes and child flows.
 
-Flow structure:
+## File Model
 
-- identity: `flow.id`, optional `flow.name`
-- interface: `input.*`, `output.*`, `param.*`
-- atomic runtime: `runtime.command`
-- composed graph: `node.*`, `link.*`
+One flow file uses these keys:
 
-## Runtime Surface
+- `flow.id=<id>`
+- `flow.param.<key>=<value>`
+- `flow.link=<node-ref>` repeated for each entry branch
+- `node.<ref>.file=<path>`
+- `node.<ref>.exec=<command>`
+- `node.<ref>.param.<key>=<value>`
+- `node.<ref>.link=<node-ref>` repeated for each outgoing branch
 
-`kc-flow` provides the runtime surface for executing one root flow or one
-atomic contract definition.
+Node references are local to the current file.
+They are flow-local names, not global reusable identities.
 
-Invocation contexts:
+## Scope Model
 
-- root flow: launched with `kc-flow --run <file>`
-- sub-execution: started by one contract command that runs `kc-flow`
+Two placeholder scopes are supported:
 
-## Architecture
+- `<flow.param.X>`: effective parameter of the current flow
+- `<node.param.X>`: effective parameter of the current node
 
-`kc-flow` is a process-graph runtime, not a programming language runtime.
+Resolution rules:
 
-- Contracts and flows define structure with `key=value`.
-- One node executes one command string.
-- One node receives one functional input FD.
-- One node receives its declared parameters as environment for that execution.
-- One node decides internally how to map those FDs and parameters to the
-    command it runs.
-- One flow keeps its linked nodes inside the same DAG execution.
-- One contract may launch one sub-execution by invoking `kc-flow` in
-    `runtime.command`.
-- Composed flows schedule ready nodes by resolved dependencies.
-- Root execution uses `--fd-in` and `--fd-out` for the public flow interface.
-- Runtime status can be observed separately through `--fd-status`.
+- one node `exec` resolves in the scope of that node inside its parent flow
+- one node `file` creates one child flow scope
+- child flow defaults come from its own `flow.param.*`
+- parent node params override those child flow defaults
 
-### Contract/Flow Model
+## Execution Semantics
 
-- Atomic contract uses `contract.id`, optional `contract.name`, `input.*`, `param.*`,
-    `output.*`, and `runtime.command`.
-- Composed flow uses `flow.id`, optional `flow.name`, `node.N.id`,
-    `node.N.contract`,
-    `link.N.from`, and `link.N.to`.
+- runtime starts at every `flow.link`
+- every `node.link` opens one independent branch
+- sibling branches do not merge
+- one node may define only `file`, only `exec`, or both
+- when both are present, runtime expands `file` first and then applies
+    `exec` to every active branch produced by that expansion
+- one node without `exec` is valid; it may only expand a child flow or only
+    forward branches
+- one declared node that is not reachable from any `flow.link` remains part
+    of the model but is not executed
 
-### Endpoint Semantics
+Cycles are invalid and fail validation.
 
-- Source endpoints are `input.<id>` and `node.<node_id>.out.<id>`.
-- Destination endpoints are `node.<node_id>.in.<id>` and `output.<id>`.
+## Environment
 
-### Execution Semantics
+Executed commands receive:
 
-- Ready nodes are dispatched by dependency order.
-- Runtime concurrency is limited by `--workers`.
-- Links define one horizontal DAG inside the same runtime execution.
-- One child flow becomes one sub-execution only when one contract command
-    starts `kc-flow` explicitly in `runtime.command`.
-- Cycles are invalid topologies and fail fast.
-- Loop semantics are not supported in this stage.
-- Runtime transport is descriptor-based.
-- Node parameters remain internal to the node and are exported to its process
-    environment.
-- Atomic commands receive `KC_FLOW_FILE`, `KC_FLOW_DIR`,
-    `KC_FLOW_FD_IN`, `KC_FLOW_FD_OUT`, and `KC_FLOW_PARAM_*` in their
-    environment.
-- The runtime does not force one child command to use `stdin/stdout`.
+- `KC_FLOW_FILE`
+- `KC_FLOW_DIR`
+- `KC_FLOW_FD_IN`
+- `KC_FLOW_FD_OUT`
+- `KC_FLOW_FLOW_PARAM_*`
+- `KC_FLOW_NODE_PARAM_*`
+- `KC_FLOW_PARAM_*`
 
-Graph validation includes:
-
-- endpoint format validation
-- node reference validation
-- cycle detection
+`KC_FLOW_PARAM_*` currently mirrors node params for shell convenience.
 
 ## Usage
 
@@ -94,100 +87,77 @@ Graph validation includes:
 kc-flow --help
 ```
 
-### Run a flow file
+### Run one flow
 ```bash
 kc-flow --run /path/to/file.flow
 ```
 
-### Run with overrides
+### Override one flow param
 ```bash
-kc-flow --run /path/to/file.flow --set param.message=hello
+kc-flow --run /path/to/file.flow --set flow.param.hello=Hello
 ```
 
-### Run with a custom worker limit
-```bash
-kc-flow --run /path/to/file.flow --workers 2
-```
+`--set param.hello=Hello` is also accepted and maps to flow scope.
 
 ### Run with explicit descriptors
 ```bash
 kc-flow --run /path/to/file.flow --fd-in 3 --fd-out 4
 ```
 
-Use explicit descriptors when the flow is embedded inside another runtime or
-parent process.
-
-### Run with a status descriptor
+### Run with status output
 ```bash
 kc-flow --run /path/to/file.flow --fd-status 5
 ```
 
-`--fd-status` emits one line per runtime event without changing the
-functional data path of the flow.
+## Current Example
 
-### Minimal graph examples
+Parent flow:
+```flow
+flow.id=parent
+flow.param.hello=Hello
+flow.link=node-1
 
-Linear graph:
-```bash
-./etc/linear.sh
-kc-flow --run ./etc/linear.flow
-kc-flow --run ./etc/linear.flow --set param.message=kc
+node.node-1.file=child.flow
+node.node-1.param.hello=<flow.param.hello>
+node.node-1.link=node-2
+
+node.node-2.param.hello=Hola
+node.node-2.exec=printf "%s" "<node.param.hello> Mundo"
+
+node.node-3.file=child.flow
+node.node-3.param.hello=Bonjour
 ```
 
-Nesting graph:
-```bash
-./etc/nest.sh
-kc-flow --run ./etc/nest.flow
-kc-flow --run ./etc/nest.flow --set param.message=kc
+Child flow:
+```flow
+flow.id=child
+flow.param.hello=Hello
+flow.param.world=World
+flow.link=node-1
+
+node.node-1.exec=printf "%s" "<flow.param.hello> <flow.param.world>"
 ```
 
-The `linear` example stays inside one DAG:
-```text
-source -> render
-```
+Runtime behavior:
 
-The `nest` example starts one child sub-execution from one contract:
-```text
-child
-```
+- parent enters through `node-1`
+- `node-1` expands `child.flow`
+- child prints `Hello World`
+- control returns to parent branch
+- `node-2` prints `Hola Mundo`
+- `node-3` stays declared but does not run because no branch reaches it
 
-Inside `child`, one separate `kc-flow` run executes:
-```text
-render
-```
-
-### Full Parameter Reference
+## Flags
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--run` | Path to the flow file to execute | Required |
-| `--set` | Runtime override (format: `key=value`) | `NULL` |
-| `--workers` | Runtime worker process limit | CPU cores |
-| `--fd-in` | Runtime input descriptor | `0` |
+| `--set` | Flow param override in `key=value` form | None |
+| `--workers` | Runtime worker count hint | CPU cores |
+| `--fd-in` | Runtime input descriptor | Disabled |
 | `--fd-out` | Runtime output descriptor | `1` |
 | `--fd-status` | Runtime status descriptor | Disabled |
-| `--help` | Shows help | `NULL` |
-
-Status event examples:
-
-```text
-event=run.started pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow
-event=node.started pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow
-event=node.finished pid=1001 kind=node node=child target_kind=contract target_path=/repo/etc/nest-child.flow status=ok
-event=run.finished pid=1001 kind=flow id=kc.nest path=/repo/etc/nest.flow status=ok
-```
-
-## Implementation Notes
-
-Execution model:
-
-1. Parse one `key=value` contract or flow.
-2. Resolve indexed sections for params, inputs, outputs, nodes, and links.
-3. Validate graph references before execution.
-4. Execute ready nodes with functional FDs plus declared node parameters.
-5. Connect node outputs to downstream inputs through descriptor transport.
-6. Start one sub-execution only when one contract command runs `kc-flow`
-    explicitly.
+| `--help` | Show help | None |
 
 ## Testing
 
@@ -207,14 +177,10 @@ wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-flow/master/install.sh
 
 Build for specific architectures:
 ```bash
-make ARCH=x86_64
-
-make ARCH=win64
-
-make ARCH=aarch64
-
-make ARCH=arm64-v8a
-
+make x86_64
+make win64
+make aarch64
+make arm64-v8a
 make all
 ```
 
