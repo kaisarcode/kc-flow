@@ -1,8 +1,0 @@
-contract.id=kc.nest.child
-
-param.1.id=message
-param.1.default=hello
-
-output.1.id=raw
-
-runtime.command="${KC_FLOW_BIN:-kc-flow}" --run "$KC_FLOW_DIR/nest-child-inner.flow" --fd-out "$KC_FLOW_FD_OUT" --set param.message="$KC_FLOW_PARAM_MESSAGE"
