@@ -24,7 +24,7 @@ NDK_API      = 24
 CC_arm64_v8a = $(NDK_BIN)/aarch64-linux-android$(NDK_API)-clang
 CC_win64     = x86_64-w64-mingw32-gcc
 
-CFLAGS  = -Wall -Wextra -O3 -std=c11
+CFLAGS  = -Wall -Wextra -Werror -O3 -std=c11
 WINSOCK = -lws2_32 -ladvapi32
 
 .PHONY: all clean build_arch x86_64 aarch64 arm64-v8a win64
@@ -49,7 +49,7 @@ win64:
 	CFLAGS="$(CFLAGS) -D_WIN32_WINNT=0x0601"
 
 build_arch:
-	@mkdir -p $(BIN_ROOT)/$(ARCH)
+	mkdir -p $(BIN_ROOT)/$(ARCH)
 	$(eval SYS_LIB = /usr/local/lib/kaisarcode/$(ARCH))
 	$(eval RPATH   = -Wl,-rpath,$(SYS_LIB))
 	$(foreach src,$(SRC),$(CC) $(CFLAGS) -c $(src) -o $(BIN_ROOT)/$(ARCH)/$(notdir $(src:.c=.o));)
