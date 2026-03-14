@@ -175,12 +175,11 @@ wget -qO- https://raw.githubusercontent.com/kaisarcode/kc-flow/master/install.sh
 
 ## Build
 
-Build for specific architectures:
 ```bash
 make x86_64
-make win64
 make aarch64
 make arm64-v8a
+make win64
 make all
 ```
 
